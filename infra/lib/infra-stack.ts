@@ -4,6 +4,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as logs from 'aws-cdk-lib/aws-logs';
 
 export interface InfraAppStackProps extends cdk.StackProps {
   shortTermMemoryTable: dynamodb.ITable;
@@ -40,6 +41,12 @@ export class InfraStack extends cdk.Stack {
     });
 
     // --- Lambda: health check function exposed via Function URL ---
+    const healthCheckLogGroup = new logs.LogGroup(this, 'HealthCheckFunctionLogGroup', {
+      logGroupName: '/aws/lambda/voice-ai-partner-health-check',
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
     const healthCheckFn = new lambda.Function(this, 'HealthCheckFunction', {
       functionName: 'voice-ai-partner-health-check',
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -47,6 +54,7 @@ export class InfraStack extends cdk.Stack {
       code: lambda.Code.fromAsset('lambda/health-check'),
       timeout: cdk.Duration.seconds(10),
       memorySize: 128,
+      logGroup: healthCheckLogGroup,
       environment: {
         SHORT_TERM_MEMORY_TABLE_NAME: shortTermMemoryTable.tableName,
         ARTIFACTS_BUCKET_NAME: artifactsBucket.bucketName,
