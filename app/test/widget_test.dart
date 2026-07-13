@@ -11,4 +11,29 @@ void main() {
     expect(find.byType(TextField), findsOneWidget);
     expect(find.byIcon(Icons.send), findsOneWidget);
   });
+
+  testWidgets('Mode switch button toggles between chat and voice-call screens',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(const VoiceAiPartnerApp());
+
+    // Starts in chat mode.
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('タップして話す'), findsNothing);
+
+    // Switch to voice-call mode.
+    await tester.tap(find.byIcon(Icons.graphic_eq));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('タップして話す'), findsOneWidget);
+    // No chat history/text should ever be shown in this mode.
+    expect(find.text('メッセージを送信して会話を始めましょう'), findsNothing);
+
+    // Switch back to chat mode.
+    await tester.tap(find.byIcon(Icons.chat_bubble_outline));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('タップして話す'), findsNothing);
+  });
 }
