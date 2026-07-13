@@ -20,8 +20,10 @@ const TABLE_NAME = process.env.SHORT_TERM_MEMORY_TABLE_NAME;
 const BUCKET_NAME = process.env.ARTIFACTS_BUCKET_NAME;
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001";
 // Preset ElevenLabs voice, swappable without code changes once a cloned
-// voice ID exists (see README.md).
-const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";
+// voice ID exists (see README.md). Must be a voice already owned by the
+// account (GET /v1/voices) — the free plan rejects voice-library IDs
+// that haven't been added to the account.
+const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "EXAVITQu4vr4xnSDxMaL";
 const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || "eleven_multilingual_v2";
 const HISTORY_LIMIT = 20;
 const TTL_SECONDS = 6 * 60 * 60;

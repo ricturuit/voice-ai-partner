@@ -125,17 +125,34 @@ up manually.
 ### Swapping in a cloned ElevenLabs voice
 
 The voice is controlled by the `ELEVENLABS_VOICE_ID` environment variable
-on `ConversationFunction`, defaulting to ElevenLabs' premade "Rachel"
-voice (`21m00Tcm4TlvDq8ikWAM`) so Phase 1 works before a cloned voice
-exists. Two ways to change it once you have a cloned voice ID:
+on `ConversationFunction`, currently defaulting to ElevenLabs' premade
+"Sarah" voice (`EXAVITQu4vr4xnSDxMaL`), set via `context.elevenLabsVoiceId`
+in `cdk.json`.
+
+**Important (free-plan accounts):** the voice ID must already be owned by
+the account — check with:
+```
+curl -H "xi-api-key: <elevenlabs key>" https://api.elevenlabs.io/v1/voices
+```
+Free-tier API access rejects "voice library" IDs that haven't been added
+to the account (`402 paid_plan_required: Free users cannot use library
+voices via the API`) even if the ID is a well-known premade voice like
+ElevenLabs' classic "Rachel" (`21m00Tcm4TlvDq8ikWAM`) — that one isn't in
+this account's voice list, which is why it failed. This account's own
+premade voices (Roger, Sarah, Laura, Charlie, George, ...) all work, and
+it also already has a Japanese voice available: `Z5Rahxh8jMhJKEgBfCSS`
+("Yukiko — Native Japanese female calm voice").
+
+Two ways to change the voice once you have a cloned voice ID (cloning
+also requires it to show up in the account's `/v1/voices` list):
 
 1. **Redeploy with a CDK context override** (no code change):
    ```
    cd infra
    npx cdk deploy InfraStack --context elevenLabsVoiceId=<your voice id> --require-approval never
    ```
-   To make it the permanent default, add `"elevenLabsVoiceId": "<id>"` to
-   the `context` block in `cdk.json` instead of passing `-c` every time.
+   To make it the permanent default, update `"elevenLabsVoiceId"` in the
+   `context` block in `cdk.json` instead of passing `-c` every time.
 2. **Edit the environment variable directly** in the Lambda console (fast
    for testing, but gets overwritten on the next `cdk deploy` unless you
    also update `cdk.json`/the context).
@@ -144,3 +161,16 @@ exists. Two ways to change it once you have a cloned voice ID:
 `ELEVENLABS_MODEL_ID` (default `eleven_multilingual_v2`, supports
 Japanese) are also plain environment variables on the same function if
 those need to change later.
+
+### Verified end-to-end (2026-07-13)
+
+```
+curl -X POST "<ConversationFunctionUrl>" \
+  -H "x-api-secret: <secret value>" -H "Content-Type: application/json" \
+  -d '{"sessionId":"e2e-test-001","text":"こんにちは、調子はどう?"}'
+```
+returned `200` with a Claude-generated reply and a signed S3 URL that
+downloads a valid playable MP3 (verified via `file`: "MPEG ADTS, layer
+III, v1, 128 kbps, 44.1 kHz"). A follow-up message in the same session
+correctly referenced the earlier turn, confirming DynamoDB history
+round-trips through Claude as expected.

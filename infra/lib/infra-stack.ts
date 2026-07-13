@@ -93,13 +93,16 @@ export class InfraStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    // ElevenLabs preset voice ("Rachel") used until a cloned voice ID is
-    // available. Override with `-c elevenLabsVoiceId=<id>` at deploy time,
-    // or by cdk.json's `context.elevenLabsVoiceId`, to swap it without any
-    // code changes.
+    // ElevenLabs preset voice ("Sarah", account-owned premade voice) used
+    // until a cloned voice ID is available. Override with
+    // `-c elevenLabsVoiceId=<id>` at deploy time, or by cdk.json's
+    // `context.elevenLabsVoiceId` (current default), to swap it without
+    // any code changes. Must be a voice already owned by the account
+    // (GET /v1/voices) — the free plan rejects voice-library IDs that
+    // haven't been added to the account.
     const elevenLabsVoiceId =
       (this.node.tryGetContext('elevenLabsVoiceId') as string | undefined) ??
-      '21m00Tcm4TlvDq8ikWAM';
+      'EXAVITQu4vr4xnSDxMaL';
 
     const conversationFn = new lambda.Function(this, 'ConversationFunction', {
       functionName: 'voice-ai-partner-conversation',
