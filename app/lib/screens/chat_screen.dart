@@ -149,6 +149,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _textController.clear();
     _scrollToBottom();
 
+    String? audioUrlToPlay;
     try {
       final result = await _api.sendMessage(sessionId: _sessionId, text: text);
       setState(() {
@@ -156,24 +157,32 @@ class _ChatScreenState extends State<ChatScreen> {
           ChatMessage(role: ChatRole.assistant, text: result.text, audioUrl: result.audioUrl),
         );
       });
-      if (result.audioUrl != null) {
-        await _playAudio(result.audioUrl!, isManualReplay: false);
-      }
+      audioUrlToPlay = result.audioUrl;
     } on ConversationApiException catch (e) {
       setState(() {
         _messages.add(ChatMessage(role: ChatRole.error, text: e.message));
       });
     } finally {
+      // Done sending regardless of what happens with audio playback below —
+      // playback (which can hang if the browser blocks autoplay; see
+      // _playAudio) must never keep the input/send controls disabled.
       if (mounted) {
         setState(() => _isSending = false);
       }
       _scrollToBottom();
     }
+
+    if (audioUrlToPlay != null) {
+      await _playAudio(audioUrlToPlay, isManualReplay: false);
+    }
   }
 
   Future<void> _playAudio(String url, {required bool isManualReplay}) async {
     try {
-      await _audioPlayer.play(UrlSource(url));
+      // Some browsers leave the play() promise pending indefinitely instead
+      // of rejecting it when autoplay is blocked (rather than throwing
+      // immediately), so bound it — otherwise this hangs forever.
+      await _audioPlayer.play(UrlSource(url)).timeout(const Duration(seconds: 10));
     } catch (e) {
       // Always log so playback failures (blocked autoplay, CORS, expired
       // signed URL, ...) are visible in the browser console even when we
