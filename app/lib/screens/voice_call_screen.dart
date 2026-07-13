@@ -73,6 +73,11 @@ class _VoiceCallScreenState extends State<VoiceCallScreen> with SingleTickerProv
     return _ButtonVisualState.idle;
   }
 
+  // Single tap while listening ends input (sends whatever was recognized so
+  // far) instead of canceling — ambient noise can keep the recognizer from
+  // ever going quiet on its own, so relying solely on the silence timer left
+  // the button stuck in "listening" with no way out. Canceling is now a
+  // long-press instead, so it stays available but isn't the default action.
   Future<void> _handleTap() async {
     switch (_visualState) {
       case _ButtonVisualState.sending:
@@ -82,12 +87,17 @@ class _VoiceCallScreenState extends State<VoiceCallScreen> with SingleTickerProv
         await _controller.forceStopReading();
         return;
       case _ButtonVisualState.listening:
-        await _controller.cancelListening();
+        await _controller.stopListeningAndSend();
         return;
       case _ButtonVisualState.idle:
         await _controller.startListening();
         return;
     }
+  }
+
+  Future<void> _handleLongPress() async {
+    if (_visualState != _ButtonVisualState.listening) return;
+    await _controller.cancelListening();
   }
 
   @override
@@ -98,6 +108,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen> with SingleTickerProv
     final Color color;
     final IconData icon;
     final String label;
+    String? subLabel;
     final bool enabled;
     final bool pulse;
 
@@ -112,7 +123,8 @@ class _VoiceCallScreenState extends State<VoiceCallScreen> with SingleTickerProv
       case _ButtonVisualState.listening:
         color = Colors.red;
         icon = Icons.mic;
-        label = 'タップでキャンセル';
+        label = 'タップで入力終了';
+        subLabel = '長押しでキャンセル';
         enabled = true;
         pulse = true;
         break;
@@ -150,6 +162,7 @@ class _VoiceCallScreenState extends State<VoiceCallScreen> with SingleTickerProv
             children: [
               GestureDetector(
                 onTap: enabled ? _handleTap : null,
+                onLongPress: state == _ButtonVisualState.listening ? _handleLongPress : null,
                 child: AnimatedBuilder(
                   animation: _pulseController,
                   builder: (context, child) {
@@ -185,6 +198,13 @@ class _VoiceCallScreenState extends State<VoiceCallScreen> with SingleTickerProv
                   color: enabled ? null : theme.disabledColor,
                 ),
               ),
+              if (subLabel != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  subLabel,
+                  style: theme.textTheme.bodySmall?.copyWith(color: theme.disabledColor),
+                ),
+              ],
             ],
           ),
         ),

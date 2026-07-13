@@ -268,6 +268,14 @@ class ConversationController extends ChangeNotifier {
     text = text.trim();
     if (text.isEmpty || isSending || isPlayingReply) return;
 
+    // Fire-and-forget, synchronously, before any await below — same trick as
+    // in startListening(). Without this, a text-only send (never touching
+    // the mic button) never unlocks the shared AudioPlayer with a genuine
+    // user gesture, so the reply's automatic playback gets silently blocked
+    // by the browser's autoplay policy once the API round-trip (which can
+    // take several seconds) outlasts the click/Enter-key gesture.
+    _unlockAudioPlayback();
+
     _silenceTimer?.cancel();
     silenceCountdown = null;
     if (isListening) {
