@@ -2,6 +2,7 @@
 import * as cdk from 'aws-cdk-lib/core';
 import { InfraCoreStack } from '../lib/infra-core-stack';
 import { InfraStack } from '../lib/infra-stack';
+import { InfraWebStack } from '../lib/infra-web-stack';
 
 const app = new cdk.App();
 
@@ -17,3 +18,5 @@ new InfraStack(app, 'InfraStack', {
   shortTermMemoryTable: coreStack.shortTermMemoryTable,
   artifactsBucket: coreStack.artifactsBucket,
 });
+
+new InfraWebStack(app, 'InfraWebStack', { env });

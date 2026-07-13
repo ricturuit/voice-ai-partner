@@ -7,6 +7,20 @@ AWS CDK (TypeScript) project for the Phase 1 backend. Region: `ap-northeast-1`.
 - `InfraCoreStack`: DynamoDB short-term memory table, S3 artifacts/logs bucket
 - `InfraStack`: health-check Lambda, conversation Lambda (Claude + ElevenLabs
   TTS), Secrets Manager secrets (depends on `InfraCoreStack`)
+- `InfraWebStack`: public S3 static-website bucket hosting the Flutter web
+  client (`../app`)
+
+### Why S3 static hosting instead of GitHub Pages
+
+GitHub Pages needs a one-time manual step (Settings → Pages → choose a
+source) that isn't reachable through the GitHub tooling available in this
+project's automation, so it can't be fully self-served. S3 static website
+hosting is fully scriptable with the same AWS account and CDK setup already
+used for the rest of this project, so that's what `InfraWebStack` deploys.
+If you'd rather use GitHub Pages: build the site (see `app/README.md`),
+push `app/build/web` to a `gh-pages` branch, then enable Pages once in the
+repo's Settings with that branch as the source — after that, redeploys are
+just a normal push.
 
 ## Useful commands
 
