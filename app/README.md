@@ -162,6 +162,31 @@ aws cloudfront create-invalidation --distribution-id EWNS21M4N3R3L --paths "/*"
     `navigator.mediaDevices`が存在しなくなることも別途確認済み**
     (次項「⚠️重要」参照。実機での有効な音声入力確認にはHTTPS化が必要)
 
+## 修正済み: MissingPluginException(音声入力が`initialize`で失敗)(2026-07-13)
+
+**症状**: 音声入力(マイクボタン)を使おうとすると
+`MissingPluginException(No implementation found for method initialize on
+channel plugin.csdcorp.com/speech_to_text)` が発生していた。
+
+**原因**: `.dart_tool/flutter_build/` 配下のインクリメンタルビルドキャッシュが
+不整合を起こしていた。`web_plugin_registrant.dart`(Web版プラグイン登録用の
+自動生成ファイル)のソース自体は`SpeechToTextPlugin.registerWith(registrar)`
+を正しく含んでいたが、実際にビルドされた`main.dart.js`には
+`webkitSpeechRecognition`関連のコードが含まれておらず、代わりにデフォルトの
+MethodChannel実装(ネイティブアプリ向けの、存在しないチャンネルにメッセージを
+送ろうとする実装)だけが残っていた。`speech_to_text`パッケージを追加した後、
+一度も`flutter clean`せずに複数回ビルドを重ねたことで、古いビルド成果物が
+一部再利用されてしまったことが原因と考えられる。
+
+**対応**: `flutter clean` → `flutter pub get` → クリーンな状態で
+`flutter build web --release --no-web-resources-cdn --dart-define=...` を
+再実行。ビルド後の`main.dart.js`に`webkitSpeechRecognition`
+(2箇所)・`SpeechRecognitionError`・`SpeechRecognitionResult` が含まれる
+ことを確認してからデプロイ・CloudFrontキャッシュ無効化を実施。
+
+`web/index.html`(`flutter_bootstrap.js`の読み込み等)は元々標準のまま
+正しく、修正不要だった。
+
 ## 修正済み: 送信後ロード表示が終わらず入力欄が固まる不具合(2026-07-13)
 
 **症状**(実機報告): テキストを送信すると返答テキストは表示されるが、
