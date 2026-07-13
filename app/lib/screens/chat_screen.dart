@@ -179,6 +179,10 @@ class _ChatScreenState extends State<ChatScreen> {
           cancelOnError: true,
         ),
       );
+      // Cue that it's the user's turn to speak — right when the mic is
+      // actually ready to receive input, whether this is the very first
+      // activation or re-arming for the next turn of the conversation.
+      _playReadyCue();
     } catch (e) {
       debugPrint('Speech recognition failed to start (autoRestart=$isAutoRestart): $e');
       if (!mounted) return;
@@ -196,6 +200,7 @@ class _ChatScreenState extends State<ChatScreen> {
               cancelOnError: true,
             ),
           );
+          _playReadyCue();
           return;
         } catch (e2) {
           debugPrint('Speech recognition retry failed: $e2');
@@ -239,12 +244,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     setState(() => _silenceCountdown = _silenceThresholdSeconds);
-    var cuePlayed = false;
     _silenceTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!cuePlayed) {
-        cuePlayed = true;
-        _playSilenceCue();
-      }
       final remaining = (_silenceCountdown ?? 1) - 1;
       if (remaining <= 0) {
         timer.cancel();
@@ -256,13 +256,16 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  Future<void> _playSilenceCue() async {
+  // Soft "pon" cue meaning "the mic is listening, go ahead and speak" —
+  // played once whenever a listen() session actually starts (see
+  // _startListening), not tied to the silence countdown.
+  Future<void> _playReadyCue() async {
     try {
       await _cuePlayer.play(AssetSource('sounds/silence_cue.wav'), volume: 0.18);
     } catch (e) {
       // Purely a nice-to-have UI cue — never let it affect the actual
       // conversation flow.
-      debugPrint('Silence cue playback failed: $e');
+      debugPrint('Ready cue playback failed: $e');
     }
   }
 
@@ -328,10 +331,24 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _playAudio(String url, {required bool isManualReplay}) async {
     try {
-      // Some browsers leave the play() promise pending indefinitely instead
-      // of rejecting it when autoplay is blocked (rather than throwing
-      // immediately), so bound it — otherwise this hangs forever.
-      await _audioPlayer.play(UrlSource(url)).timeout(const Duration(seconds: 10));
+      // play() resolves once playback *starts*, not once it finishes — so
+      // waiting on it alone isn't enough to know the reply has actually
+      // finished being read aloud (callers rely on that, e.g. to avoid
+      // re-arming the mic mid-playback). Wait for onPlayerComplete instead,
+      // with the play() call itself still bounded in case autoplay is
+      // blocked and the browser leaves that promise pending forever.
+      final completer = Completer<void>();
+      final subscription = _audioPlayer.onPlayerComplete.listen((_) {
+        if (!completer.isCompleted) completer.complete();
+      });
+      try {
+        await _audioPlayer.play(UrlSource(url)).timeout(const Duration(seconds: 10));
+        // Safety net in case onPlayerComplete never fires for some reason
+        // (e.g. a browser quirk) — don't block the conversation forever.
+        await completer.future.timeout(const Duration(seconds: 30), onTimeout: () {});
+      } finally {
+        await subscription.cancel();
+      }
     } catch (e) {
       // Always log so playback failures (blocked autoplay, CORS, expired
       // signed URL, ...) are visible in the browser console even when we
