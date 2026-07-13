@@ -14,10 +14,55 @@ S3の静的website hosting(バケット: `voice-ai-partner-web-568529252964-ap-n
 
 ## 画面構成
 
-- テキスト入力欄 + 送信ボタン(下部)
+- テキスト入力欄 + マイクボタン + 送信ボタン(下部)
+- マイクボタンをタップすると音声入力(STT)を開始。認識結果はテキスト入力欄に
+  リアルタイムで反映される(自動送信はしない。認識結果を確認・修正してから
+  送信ボタンを押す想定)。認識中は入力欄上に赤いインジケーター
+  (「音声を認識しています…」)を表示
 - 会話履歴を吹き出し表示(ユーザー発言は右・青、AI返答は左・グレー、エラーは赤)
 - AI返答の音声は自動再生。ブラウザの自動再生ポリシーでブロックされた場合に備え、
   吹き出し内に「音声を再生」ボタンで手動再生も可能
+
+## 音声入力(STT)の実装
+
+- パッケージ: [`speech_to_text`](https://pub.dev/packages/speech_to_text)
+  (Web版は`webkitSpeechRecognition`/`SpeechRecognition`(Web Speech API)を
+  利用する実装が組み込み済み。追加パッケージ不要)
+- アプリ起動時に`SpeechToText.initialize()`でブラウザの対応状況を確認し、
+  対応していなければマイクボタンをグレーアウト(`Icons.mic_off`)表示
+- マイクボタンタップ時にも改めて利用可否をチェックし、非対応・エラー時は
+  SnackBarで理由を表示してテキスト入力にフォールバックできるようにしている
+  (`_handleSpeechError` / `_toggleListening`、`chat_screen.dart`)
+- `initialize()`・`listen()`双方をtry/catchで保護し、ブラウザ側の予期しない
+  例外でアプリ全体がクラッシュしないようにしている
+
+### ⚠️ 重要: 現在のS3 HTTP配信ではマイク入力は動作しません
+
+**Web Speech API(および`getUserMedia`によるマイクアクセス全般)は、ブラウザの
+「セキュアコンテキスト」(HTTPSまたは`localhost`)でのみ動作する。** 現在の
+公開URLはS3の静的website hosting機能によるプレーンHTTP配信のため、
+`https://`化しない限りこの機能は実質的に動作しない。
+
+実際に検証した内容(下記「動作確認したこと」参照):
+- `https://`または`http://localhost`(secure context)では、
+  `SpeechRecognition`が正常に初期化され、マイクボタンが有効になる
+- プレーンHTTP(非localhost)では `window.isSecureContext` が`false`になり、
+  `navigator.mediaDevices` 自体が存在しなくなる。`SpeechRecognition`コンス
+  トラクタ自体は存在するためマイクボタンは一見有効に見えるが、タップして
+  実際に音声認識を開始しようとすると失敗する(エラーメッセージは表示される
+  ので、アプリがクラッシュしたり無反応になったりはしない)
+
+**対応が必要**: このサイトをHTTPS化しない限り、本番URLでは音声入力ボタンを
+タップしても動作しない。選択肢:
+1. S3バケットの手前にCloudFrontディストリビューションを追加し、
+   CloudFrontのデフォルト証明書でHTTPS配信する(証明書取得不要、
+   `*.cloudfront.net`のURLになる)
+2. GitHub Pagesに切り替える(標準でHTTPS配信される)
+3. 独自ドメイン + ACM証明書 + CloudFront
+
+このセッションで使っているAWS認証情報には現時点で`cloudfront:*`権限が
+付与されていないため、1を実施するには権限追加が必要(過去の同様のケースと
+同じパターン)。次の対応をご検討ください。
 
 ## 会話APIとの連携
 
@@ -89,6 +134,25 @@ aws s3 sync build/web s3://voice-ai-partner-web-568529252964-ap-northeast-1/ \
   正しく `Access-Control-Allow-Origin` / `-Headers` / `-Methods` を返すことを確認
 - 会話API自体は別途curlで何度もE2E動作確認済み(`infra/README.md`参照)
 - 音声再生に必要なS3バケットのCORS設定を確認・修正済み(次項)
+- 音声入力(STT)を`http://localhost`(secure context)でローカルサーブし、
+  ヘッドレスブラウザ + フェイクマイクデバイス(`--use-fake-device-for-media-stream`)
+  で検証:
+  - マイクボタンタップ → 音声認識開始 → (フェイクデバイス起因の)
+    `audio-capture`エラー発生 → SnackBarで
+    「音声入力でエラーが発生しました(audio-capture)。テキスト入力をご利用
+    ください。」と表示 → 数秒後に自動的にUIが通常状態に復帰、の一連の
+    流れをFlutterのsemanticsツリー(アクセシビリティ用DOM)経由でテキスト
+    として確認
+  - `window.SpeechRecognition`/`webkitSpeechRecognition`を意図的に無効化
+    (未対応ブラウザを模擬)した場合、マイクボタンが「音声入力は利用
+    できません」表示になり、タップすると
+    「音声入力でエラーが発生しました(speech_not_supported)。テキスト入力
+    をご利用ください。」とSnackBarが出ることを確認
+  - 上記いずれのケースもアプリがクラッシュしたり無反応になったりせず、
+    エラーメッセージ表示 → 通常状態への復帰まで正しく動作することを確認
+  - **本番URL(S3 HTTP)では`isSecureContext`が`false`になり
+    `navigator.mediaDevices`が存在しなくなることも別途確認済み**
+    (次項「⚠️重要」参照。実機での有効な音声入力確認にはHTTPS化が必要)
 
 ## 修正済み: 音声が再生されない不具合(2026-07-13)
 

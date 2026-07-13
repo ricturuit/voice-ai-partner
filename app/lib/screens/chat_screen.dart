@@ -1,5 +1,8 @@
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:speech_to_text/speech_recognition_error.dart';
+import 'package:speech_to_text/speech_recognition_result.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/chat_message.dart';
@@ -20,16 +23,21 @@ class _ChatScreenState extends State<ChatScreen> {
 
   final ConversationApi _api = ConversationApi();
   final AudioPlayer _audioPlayer = AudioPlayer();
+  final SpeechToText _speech = SpeechToText();
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = [];
 
   bool _isSending = false;
+  bool _speechInitDone = false;
+  bool _speechAvailable = false;
+  bool _isListening = false;
 
   @override
   void initState() {
     super.initState();
     _sessionId = const Uuid().v4();
+    _initSpeech();
   }
 
   @override
@@ -37,16 +45,106 @@ class _ChatScreenState extends State<ChatScreen> {
     _textController.dispose();
     _scrollController.dispose();
     _audioPlayer.dispose();
+    _speech.stop();
     super.dispose();
+  }
+
+  Future<void> _initSpeech() async {
+    // On web this checks for `SpeechRecognition`/`webkitSpeechRecognition`
+    // support in the browser; it does not request microphone permission
+    // yet (that happens on the first listen()).
+    var available = false;
+    try {
+      available = await _speech.initialize(
+        onError: _handleSpeechError,
+        onStatus: _handleSpeechStatus,
+      );
+    } catch (e) {
+      // Some browsers expose the SpeechRecognition constructor but still
+      // fail to initialize it (missing OS-level speech service, etc.) —
+      // treat that the same as "not available" instead of crashing.
+      debugPrint('Speech recognition initialization failed: $e');
+    }
+    if (!mounted) return;
+    setState(() {
+      _speechAvailable = available;
+      _speechInitDone = true;
+    });
+  }
+
+  void _handleSpeechError(SpeechRecognitionError error) {
+    if (!mounted) return;
+    setState(() => _isListening = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('音声入力でエラーが発生しました(${error.errorMsg})。テキスト入力をご利用ください。')),
+    );
+  }
+
+  void _handleSpeechStatus(String status) {
+    if (!mounted) return;
+    if (status == 'notListening' || status == 'done') {
+      setState(() => _isListening = false);
+    }
+  }
+
+  Future<void> _toggleListening() async {
+    if (_isListening) {
+      await _speech.stop();
+      if (mounted) setState(() => _isListening = false);
+      return;
+    }
+
+    if (!_speechInitDone) {
+      // Still checking browser support; ignore taps until that resolves.
+      return;
+    }
+    if (!_speechAvailable) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('お使いのブラウザ/端末は音声入力に対応していません。テキスト入力をご利用ください。')),
+      );
+      return;
+    }
+
+    setState(() => _isListening = true);
+    try {
+      await _speech.listen(
+        onResult: _handleSpeechResult,
+        listenOptions: SpeechListenOptions(
+          localeId: 'ja_JP',
+          partialResults: true,
+          cancelOnError: true,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Speech recognition failed to start: $e');
+      if (mounted) {
+        setState(() => _isListening = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('音声入力を開始できませんでした: $e')),
+        );
+      }
+    }
+  }
+
+  void _handleSpeechResult(SpeechRecognitionResult result) {
+    setState(() {
+      _textController.text = result.recognizedWords;
+      _textController.selection = TextSelection.collapsed(offset: _textController.text.length);
+    });
   }
 
   Future<void> _handleSend() async {
     final text = _textController.text.trim();
     if (text.isEmpty || _isSending) return;
 
+    if (_isListening) {
+      await _speech.stop();
+    }
+
     setState(() {
       _messages.add(ChatMessage(role: ChatRole.user, text: text));
       _isSending = true;
+      _isListening = false;
     });
     _textController.clear();
     _scrollToBottom();
@@ -132,9 +230,26 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
             ),
             if (_isSending) const LinearProgressIndicator(minHeight: 2),
+            if (_isListening) _buildListeningIndicator(),
             _buildInputBar(),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildListeningIndicator() {
+    return Container(
+      width: double.infinity,
+      color: Colors.red.shade50,
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.fiber_manual_record, color: Colors.red.shade400, size: 12),
+          const SizedBox(width: 8),
+          Text('音声を認識しています…', style: TextStyle(color: Colors.red.shade700)),
+        ],
       ),
     );
   }
@@ -144,6 +259,16 @@ class _ChatScreenState extends State<ChatScreen> {
       padding: const EdgeInsets.all(8.0),
       child: Row(
         children: [
+          IconButton(
+            onPressed: _isSending ? null : _toggleListening,
+            tooltip: _speechAvailable ? '音声入力' : '音声入力は利用できません',
+            icon: Icon(
+              _isListening ? Icons.mic : (_speechAvailable ? Icons.mic_none : Icons.mic_off),
+              color: _isListening
+                  ? Colors.red
+                  : (_speechAvailable ? null : Theme.of(context).disabledColor),
+            ),
+          ),
           Expanded(
             child: TextField(
               controller: _textController,
@@ -152,10 +277,12 @@ class _ChatScreenState extends State<ChatScreen> {
               maxLines: 4,
               textInputAction: TextInputAction.send,
               onSubmitted: (_) => _handleSend(),
-              decoration: const InputDecoration(
-                hintText: 'メッセージを入力',
-                border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(24))),
-                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: InputDecoration(
+                hintText: _isListening ? '話しかけてください…' : 'メッセージを入力',
+                border: const OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(24)),
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               ),
             ),
           ),
