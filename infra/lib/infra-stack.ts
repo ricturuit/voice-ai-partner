@@ -1,5 +1,3 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import * as cdk from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
@@ -31,24 +29,28 @@ export class InfraStack extends cdk.Stack {
       secretStringValue: cdk.SecretValue.unsafePlainText('REPLACE_ME'),
     });
 
-    // --- Lambda: health check function exposed via Function URL ---
-    // Inline code (no S3 asset upload) so this doesn't depend on a CDK
-    // bootstrap staging bucket.
-    const healthCheckSource = fs.readFileSync(
-      path.join(__dirname, '..', 'lambda', 'health-check', 'index.js'),
-      'utf8',
-    );
+    // --- Secrets Manager: shared secret for API request authentication ---
+    const sharedApiSecret = new secretsmanager.Secret(this, 'SharedApiSecret', {
+      secretName: 'voice-ai-partner-api-shared-secret',
+      description: 'Shared secret clients must send in the x-api-secret header',
+      generateSecretString: {
+        passwordLength: 48,
+        excludePunctuation: true,
+      },
+    });
 
+    // --- Lambda: health check function exposed via Function URL ---
     const healthCheckFn = new lambda.Function(this, 'HealthCheckFunction', {
       functionName: 'voice-ai-partner-health-check',
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromInline(healthCheckSource),
+      code: lambda.Code.fromAsset('lambda/health-check'),
       timeout: cdk.Duration.seconds(10),
       memorySize: 128,
       environment: {
         SHORT_TERM_MEMORY_TABLE_NAME: shortTermMemoryTable.tableName,
         ARTIFACTS_BUCKET_NAME: artifactsBucket.bucketName,
+        SHARED_API_SECRET_ARN: sharedApiSecret.secretArn,
       },
     });
 
@@ -57,16 +59,23 @@ export class InfraStack extends cdk.Stack {
       cors: {
         allowedOrigins: ['*'],
         allowedMethods: [lambda.HttpMethod.GET],
+        allowedHeaders: ['x-api-secret'],
       },
     });
 
     // Grant least-privilege access for future use by the backend Lambda(s)
     shortTermMemoryTable.grantReadWriteData(healthCheckFn);
     artifactsBucket.grantReadWrite(healthCheckFn);
+    sharedApiSecret.grantRead(healthCheckFn);
 
     new cdk.CfnOutput(this, 'HealthCheckFunctionUrl', {
       value: healthCheckUrl.url,
       description: 'Public URL for the health check Lambda Function URL',
+    });
+
+    new cdk.CfnOutput(this, 'SharedApiSecretName', {
+      value: sharedApiSecret.secretName,
+      description: 'Secrets Manager secret holding the shared API secret clients must send as x-api-secret',
     });
   }
 }
