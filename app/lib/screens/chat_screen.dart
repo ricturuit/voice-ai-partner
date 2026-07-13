@@ -28,9 +28,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   final ConversationApi _api = ConversationApi();
   final AudioPlayer _audioPlayer = AudioPlayer();
-  // Separate player for the short silence-detected cue so it never gets
-  // tangled up with the (longer, sometimes-blocked, sometimes-timing-out)
-  // reply-audio playback logic in _playAudio.
+  // Separate player for the short "ready to speak" cue so it never gets
+  // tangled up with the reply-audio playback logic below.
   final AudioPlayer _cuePlayer = AudioPlayer();
   final SpeechToText _speech = SpeechToText();
   final TextEditingController _textController = TextEditingController();
@@ -38,14 +37,14 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<ChatMessage> _messages = [];
 
   bool _isSending = false;
+  // True from the moment a reply's audio starts until it finishes (or is
+  // force-stopped). Mic input and the send button are locked during this
+  // window — see README.md for why — but the text field stays usable so the
+  // user can type ahead.
+  bool _isPlayingReply = false;
   bool _speechInitDone = false;
   bool _speechAvailable = false;
   bool _isListening = false;
-
-  // True while the mic is toggled "on" for a hands-free voice conversation:
-  // the app keeps re-starting the recognizer after every auto-sent turn
-  // until the user taps the mic again to turn it off.
-  bool _conversationModeActive = false;
 
   // Configurable silence threshold: how many seconds of no new recognized
   // speech before we auto-send. Also doubles as the visible countdown
@@ -54,12 +53,15 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _silenceTimer;
   int? _silenceCountdown;
 
-  // Brief grace period right after (re)starting the recognizer during which
-  // we ignore silence-countdown triggers — mainly so a stray/late result
-  // from the just-finished turn (or the reply's own TTS audio, in case any
-  // of it leaks into the mic) can't immediately fire another countdown.
+  // Brief grace period right after starting to listen during which we
+  // ignore silence-countdown triggers, in case the recognizer delivers a
+  // spurious very-early result right as it starts up.
   static const _postListenGracePeriod = Duration(seconds: 1);
   DateTime? _silenceGuardUntil;
+
+  // Lets the force-stop button unblock an in-progress reply playback wait
+  // immediately (AudioPlayer.stop() does not itself fire onPlayerComplete).
+  Completer<void>? _replayCompleter;
 
   @override
   void initState() {
@@ -107,7 +109,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _silenceTimer?.cancel();
     setState(() {
       _isListening = false;
-      _conversationModeActive = false;
       _silenceCountdown = null;
     });
     ScaffoldMessenger.of(context).showSnackBar(
@@ -123,10 +124,9 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _toggleListening() async {
-    if (_conversationModeActive) {
-      // Manual turn-off: stop listening and, if something was already
-      // recognized, send it now rather than discarding it.
-      _conversationModeActive = false;
+    if (_isListening) {
+      // Manual stop: send whatever was already recognized rather than
+      // discarding it.
       _silenceTimer?.cancel();
       final pendingText = _textController.text.trim();
       await _speech.stop();
@@ -142,6 +142,8 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
+    if (_isSending || _isPlayingReply) return;
+
     if (!_speechInitDone) {
       // Still checking browser support; ignore taps until that resolves.
       return;
@@ -153,21 +155,10 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
-    _conversationModeActive = true;
     await _startListening();
   }
 
-  // [isAutoRestart] is true when this is the app re-arming the mic between
-  // conversation turns (not a direct user tap). Browsers can briefly refuse
-  // to start a new SpeechRecognition session immediately after the previous
-  // one stopped, so on that path we wait a moment and retry quietly instead
-  // of alarming the user with an error for something they didn't do.
-  Future<void> _startListening({bool isAutoRestart = false}) async {
-    if (isAutoRestart) {
-      await Future.delayed(const Duration(milliseconds: 400));
-      if (!mounted || !_conversationModeActive) return;
-    }
-
+  Future<void> _startListening() async {
     setState(() => _isListening = true);
     _silenceGuardUntil = DateTime.now().add(_postListenGracePeriod);
     try {
@@ -179,43 +170,16 @@ class _ChatScreenState extends State<ChatScreen> {
           cancelOnError: true,
         ),
       );
-      // Cue that it's the user's turn to speak — right when the mic is
-      // actually ready to receive input, whether this is the very first
-      // activation or re-arming for the next turn of the conversation.
+      // Cue that it's the user's turn to speak, right when the mic is
+      // actually ready to receive input.
       _playReadyCue();
     } catch (e) {
-      debugPrint('Speech recognition failed to start (autoRestart=$isAutoRestart): $e');
+      debugPrint('Speech recognition failed to start: $e');
       if (!mounted) return;
-      if (isAutoRestart) {
-        // One quiet retry after a slightly longer pause before giving up.
-        await Future.delayed(const Duration(milliseconds: 800));
-        if (!mounted || !_conversationModeActive) return;
-        try {
-          _silenceGuardUntil = DateTime.now().add(_postListenGracePeriod);
-          await _speech.listen(
-            onResult: _handleSpeechResult,
-            listenOptions: SpeechListenOptions(
-              localeId: 'ja_JP',
-              partialResults: true,
-              cancelOnError: true,
-            ),
-          );
-          _playReadyCue();
-          return;
-        } catch (e2) {
-          debugPrint('Speech recognition retry failed: $e2');
-        }
-      }
-      if (!mounted) return;
-      setState(() {
-        _isListening = false;
-        _conversationModeActive = false;
-      });
-      if (!isAutoRestart) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('音声入力を開始できませんでした: $e')),
-        );
-      }
+      setState(() => _isListening = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('音声入力を開始できませんでした: $e')),
+      );
     }
   }
 
@@ -233,11 +197,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _restartSilenceCountdown() {
     _silenceTimer?.cancel();
-    if (!_conversationModeActive) return;
 
     final guardUntil = _silenceGuardUntil;
     if (guardUntil != null && DateTime.now().isBefore(guardUntil)) {
-      // Within the brief post-(re)start grace period — don't start counting
+      // Within the brief post-start grace period — don't start counting
       // down yet, just show the plain "listening" state.
       setState(() => _silenceCountdown = null);
       return;
@@ -256,9 +219,8 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  // Soft "pon" cue meaning "the mic is listening, go ahead and speak" —
-  // played once whenever a listen() session actually starts (see
-  // _startListening), not tied to the silence countdown.
+  // Soft "pon" cue meaning "you may act now" — played both when the mic
+  // starts listening and when the reply has finished being read aloud.
   Future<void> _playReadyCue() async {
     try {
       await _cuePlayer.play(AssetSource('sounds/silence_cue.wav'), volume: 0.18);
@@ -272,20 +234,19 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _handleSilenceTimeout() async {
     final text = _textController.text.trim();
     await _speech.stop();
+    setState(() => _isListening = false);
     if (text.isNotEmpty) {
       await _handleSend();
     }
-    // Keep the conversation going hands-free: start listening again for the
-    // next turn, unless the user turned conversation mode off in the
-    // meantime (e.g. while the previous turn was still sending).
-    if (_conversationModeActive && mounted) {
-      await _startListening(isAutoRestart: true);
-    }
+    // No automatic restart: the recognizer has proven unreliable to
+    // re-arm on its own across browsers, and the user now gets a clear
+    // "your turn" signal (the ready cue) each time they tap the mic
+    // again for the next utterance instead.
   }
 
   Future<void> _handleSend() async {
     final text = _textController.text.trim();
-    if (text.isEmpty || _isSending) return;
+    if (text.isEmpty || _isSending || _isPlayingReply) return;
 
     _silenceTimer?.cancel();
     setState(() => _silenceCountdown = null);
@@ -316,8 +277,7 @@ class _ChatScreenState extends State<ChatScreen> {
       });
     } finally {
       // Done sending regardless of what happens with audio playback below —
-      // playback (which can hang if the browser blocks autoplay; see
-      // _playAudio) must never keep the input/send controls disabled.
+      // playback must never keep the input controls disabled indefinitely.
       if (mounted) {
         setState(() => _isSending = false);
       }
@@ -325,30 +285,48 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     if (audioUrlToPlay != null) {
-      await _playAudio(audioUrlToPlay, isManualReplay: false);
+      await _playReplyAudio(audioUrlToPlay);
     }
   }
 
+  /// Plays the just-received reply's audio. Locks mic input and the send
+  /// button until playback genuinely finishes (or is force-stopped via
+  /// [_forceStopReading]), then plays the "ready" cue.
+  Future<void> _playReplyAudio(String url) async {
+    setState(() => _isPlayingReply = true);
+    await _playAndAwaitCompletion(url, isManualReplay: false);
+    if (!mounted) return;
+    setState(() => _isPlayingReply = false);
+    _playReadyCue();
+  }
+
+  Future<void> _forceStopReading() async {
+    if (!_isPlayingReply) return;
+    await _audioPlayer.stop();
+    // AudioPlayer.stop() does not fire onPlayerComplete, so unblock the
+    // pending wait in _playAndAwaitCompletion directly.
+    _replayCompleter?.complete();
+  }
+
+  /// Manual replay from the "音声を再生" button on a past message bubble.
+  /// Does not touch _isPlayingReply — replaying an old message shouldn't
+  /// lock the input for a new one.
   Future<void> _playAudio(String url, {required bool isManualReplay}) async {
+    await _playAndAwaitCompletion(url, isManualReplay: isManualReplay);
+  }
+
+  Future<void> _playAndAwaitCompletion(String url, {required bool isManualReplay}) async {
+    final completer = Completer<void>();
+    _replayCompleter = completer;
+    final subscription = _audioPlayer.onPlayerComplete.listen((_) {
+      if (!completer.isCompleted) completer.complete();
+    });
     try {
-      // play() resolves once playback *starts*, not once it finishes — so
-      // waiting on it alone isn't enough to know the reply has actually
-      // finished being read aloud (callers rely on that, e.g. to avoid
-      // re-arming the mic mid-playback). Wait for onPlayerComplete instead,
-      // with the play() call itself still bounded in case autoplay is
-      // blocked and the browser leaves that promise pending forever.
-      final completer = Completer<void>();
-      final subscription = _audioPlayer.onPlayerComplete.listen((_) {
-        if (!completer.isCompleted) completer.complete();
-      });
-      try {
-        await _audioPlayer.play(UrlSource(url)).timeout(const Duration(seconds: 10));
-        // Safety net in case onPlayerComplete never fires for some reason
-        // (e.g. a browser quirk) — don't block the conversation forever.
-        await completer.future.timeout(const Duration(seconds: 30), onTimeout: () {});
-      } finally {
-        await subscription.cancel();
-      }
+      // play() resolves once playback *starts*, not once it finishes, and
+      // some browsers leave it pending forever if autoplay is blocked — so
+      // bound it, then separately wait for the real completion event.
+      await _audioPlayer.play(UrlSource(url)).timeout(const Duration(seconds: 10));
+      await completer.future.timeout(const Duration(seconds: 30), onTimeout: () {});
     } catch (e) {
       // Always log so playback failures (blocked autoplay, CORS, expired
       // signed URL, ...) are visible in the browser console even when we
@@ -363,6 +341,9 @@ class _ChatScreenState extends State<ChatScreen> {
           SnackBar(content: Text('音声を再生できませんでした: $e')),
         );
       }
+    } finally {
+      await subscription.cancel();
+      _replayCompleter = null;
     }
   }
 
@@ -408,6 +389,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
             ),
             if (_isSending) const LinearProgressIndicator(minHeight: 2),
+            if (_isPlayingReply) _buildPlayingReplyIndicator(),
             if (_isListening) _buildListeningIndicator(),
             _buildInputBar(),
           ],
@@ -457,13 +439,31 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Widget _buildPlayingReplyIndicator() {
+    return Container(
+      width: double.infinity,
+      color: Colors.blue.shade50,
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.volume_up, color: Colors.blue.shade400, size: 16),
+          const SizedBox(width: 8),
+          Text('読み上げ中…(完了までマイク入力・送信はできません)',
+              style: TextStyle(color: Colors.blue.shade700)),
+        ],
+      ),
+    );
+  }
+
   Widget _buildInputBar() {
+    final controlsLocked = _isSending || _isPlayingReply;
     return Padding(
       padding: const EdgeInsets.all(8.0),
       child: Row(
         children: [
           IconButton(
-            onPressed: _isSending ? null : _toggleListening,
+            onPressed: controlsLocked ? null : _toggleListening,
             tooltip: _speechAvailable ? '音声入力' : '音声入力は利用できません',
             icon: Icon(
               _isListening ? Icons.mic : (_speechAvailable ? Icons.mic_none : Icons.mic_off),
@@ -471,6 +471,11 @@ class _ChatScreenState extends State<ChatScreen> {
                   ? Colors.red
                   : (_speechAvailable ? null : Theme.of(context).disabledColor),
             ),
+          ),
+          IconButton(
+            onPressed: _isPlayingReply ? _forceStopReading : null,
+            tooltip: '読み上げを停止',
+            icon: const Icon(Icons.stop_circle_outlined),
           ),
           Expanded(
             child: TextField(
@@ -491,7 +496,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           const SizedBox(width: 8),
           IconButton.filled(
-            onPressed: _isSending ? null : _handleSend,
+            onPressed: controlsLocked ? null : _handleSend,
             icon: const Icon(Icons.send),
           ),
         ],
