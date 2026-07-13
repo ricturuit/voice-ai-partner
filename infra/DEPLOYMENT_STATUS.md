@@ -3,52 +3,45 @@
 Region: `ap-northeast-1`
 Account: `568529252964`
 
-## Deployed (InfraCoreStack)
+Status: **fully deployed**. Both stacks (`InfraCoreStack`, `InfraStack`)
+are `CREATE_COMPLETE`. The health check Function URL was verified with a
+live request and returned HTTP 200.
 
-- DynamoDB table `voice-ai-partner-short-term-memory` (PK `sessionId`, SK `createdAt`, TTL attribute `expiresAt`)
-- S3 bucket `voice-ai-partner-artifacts-568529252964-ap-northeast-1` (all public access blocked, SSE-S3 encrypted, TLS-only)
+## Deployed resources
 
-## Blocked (InfraStack: Lambda health check + Secrets Manager placeholders)
+- DynamoDB table `voice-ai-partner-short-term-memory` (PK `sessionId`,
+  SK `createdAt`, TTL attribute `expiresAt`, TTL confirmed `ENABLED`)
+- S3 bucket `voice-ai-partner-artifacts-568529252964-ap-northeast-1`
+  (all public access blocked, SSE-S3 encrypted, TLS-only)
+- Secrets Manager placeholders `claude-api-key` and `elevenlabs-api-key`
+  (value `REPLACE_ME` — fill in manually via console or
+  `aws secretsmanager put-secret-value`)
+- Lambda function `voice-ai-partner-health-check` with a public Function
+  URL (no bootstrap required — see below)
 
-The IAM user these credentials belong to (`claude-code-dev`) has only:
-`IAMReadOnlyAccess`, `IAMUserChangePassword`, `AmazonDynamoDBFullAccess`,
-`AmazonS3FullAccess`, `AWSCloudFormationFullAccess`, `AWSLambda_FullAccess`.
+## Notes on this account's IAM constraints
 
-Confirmed via `iam:SimulatePrincipalPolicy` and a real deploy attempt
-(rolled back cleanly, no orphaned resources):
+The deploying IAM user (`claude-code-dev`) originally lacked
+`iam:CreateRole`/`iam:PassRole` and `secretsmanager:CreateSecret` — these
+were granted mid-session (`IAMFullAccess`, `SecretsManagerReadWrite`).
+It also never had `ssm:*` or `ecr:*`, so `cdk bootstrap` still isn't
+possible; both stacks use `cdk.LegacyStackSynthesizer()` in
+`bin/infra.ts`, which deploys directly with the caller's own credentials
+and doesn't need a bootstrapped environment (no SSM version parameter,
+no S3 asset staging bucket, no bootstrap IAM roles). This works here
+because the Lambda code is small enough to embed inline
+(`lambda.Code.fromInline`) rather than uploading a zip asset to S3.
 
-- `iam:CreateRole` / `iam:PassRole` / `iam:PutRolePolicy` — **denied**.
-  Blocks creating the Lambda execution role, so the health-check function
-  cannot be created at all.
-- `secretsmanager:CreateSecret` — **denied**. Confirmed by an actual
-  `CREATE_FAILED` event:
-  `User: .../claude-code-dev is not authorized to perform: secretsmanager:CreateSecret`
-- `ssm:PutParameter` / `ecr:CreateRepository` — also denied, which is why
-  `cdk bootstrap` fails too. Both stacks use `LegacyStackSynthesizer` to
-  avoid needing a bootstrapped environment for the resources that *can*
-  be created.
+One more gap surfaced during deploy: `logs:CreateLogGroup` was denied
+for the deploying user, so `@aws-cdk/aws-lambda:useCdkManagedLogGroup`
+is set to `false` in `cdk.json` — the function's own execution role
+already has `logs:CreateLogGroup`/`PutLogEvents` (via the CDK-generated
+basic execution policy), so CloudWatch Logs still work; the log group is
+just created lazily on first invocation instead of by CloudFormation.
 
-## To finish this stack
-
-Attach a policy to `claude-code-dev` (or the role/user actually used to
-deploy) granting at minimum:
-
-- `iam:CreateRole`, `iam:DeleteRole`, `iam:PutRolePolicy`,
-  `iam:DeleteRolePolicy`, `iam:AttachRolePolicy`, `iam:DetachRolePolicy`,
-  `iam:PassRole` (scoped to `lambda.amazonaws.com` via
-  `iam:PassedToService`), `iam:TagRole` — scoped to role names like
-  `InfraStack-HealthCheckFunctionServiceRole*` if you want it tightly
-  scoped.
-- `secretsmanager:CreateSecret`, `secretsmanager:TagResource`,
-  `secretsmanager:DeleteSecret`, `secretsmanager:PutSecretValue`,
-  `secretsmanager:DescribeSecret` — scoped to
-  `claude-api-key` / `elevenlabs-api-key`.
-
-Then from `infra/`:
+## Redeploying
 
 ```
-npx cdk deploy InfraStack --require-approval never
+cd infra
+npx cdk deploy --all --require-approval never
 ```
-
-No bootstrap is required (both stacks use the legacy synthesizer), and
-`InfraCoreStack` is already deployed and will be reused as-is.
