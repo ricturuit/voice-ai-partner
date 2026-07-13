@@ -6,10 +6,17 @@
 
 ## 公開URL
 
-http://voice-ai-partner-web-568529252964-ap-northeast-1.s3-website-ap-northeast-1.amazonaws.com/
+**https://d2nglo9qqrftj1.cloudfront.net/** ← こちらを使う(HTTPS、マイク入力に必須)
 
-S3の静的website hosting(バケット: `voice-ai-partner-web-568529252964-ap-northeast-1`、
-`infra/lib/infra-web-stack.ts` でCDK管理)。GitHub Pagesではなくこちらを選んだ理由は
+http://voice-ai-partner-web-568529252964-ap-northeast-1.s3-website-ap-northeast-1.amazonaws.com/
+(S3直接、HTTPのみ。マイク入力は動作しない。CloudFrontの原点として内部的に使用)
+
+S3静的website hosting + その手前のCloudFrontディストリビューション(HTTPS化のみが目的、
+独自ドメイン/ACM証明書なしで`*.cloudfront.net`のデフォルト証明書を利用)。
+`infra/lib/infra-web-stack.ts` でCDK管理。検証フェーズ用の暫定構成のため、
+価格クラスは最小(`PRICE_CLASS_100`)、WAF等は付けていない。将来ネイティブ
+モバイルアプリに移行してこのWeb版が不要になったら、`InfraWebStack`ごと
+`cdk destroy` すればよい。GitHub Pagesではなくこちらを選んだ理由は
 `infra/README.md` 参照。
 
 ## 画面構成
@@ -36,33 +43,30 @@ S3の静的website hosting(バケット: `voice-ai-partner-web-568529252964-ap-n
 - `initialize()`・`listen()`双方をtry/catchで保護し、ブラウザ側の予期しない
   例外でアプリ全体がクラッシュしないようにしている
 
-### ⚠️ 重要: 現在のS3 HTTP配信ではマイク入力は動作しません
+### 解決済み: マイク入力にはHTTPSが必須だった件
 
 **Web Speech API(および`getUserMedia`によるマイクアクセス全般)は、ブラウザの
-「セキュアコンテキスト」(HTTPSまたは`localhost`)でのみ動作する。** 現在の
-公開URLはS3の静的website hosting機能によるプレーンHTTP配信のため、
-`https://`化しない限りこの機能は実質的に動作しない。
+「セキュアコンテキスト」(HTTPSまたは`localhost`)でのみ動作する。** S3の
+静的website hosting単体はプレーンHTTPしか提供できないため、そのままでは
+マイク入力が動作しなかった。
 
-実際に検証した内容(下記「動作確認したこと」参照):
+実際に検証して切り分けた内容:
 - `https://`または`http://localhost`(secure context)では、
   `SpeechRecognition`が正常に初期化され、マイクボタンが有効になる
 - プレーンHTTP(非localhost)では `window.isSecureContext` が`false`になり、
   `navigator.mediaDevices` 自体が存在しなくなる。`SpeechRecognition`コンス
   トラクタ自体は存在するためマイクボタンは一見有効に見えるが、タップして
-  実際に音声認識を開始しようとすると失敗する(エラーメッセージは表示される
-  ので、アプリがクラッシュしたり無反応になったりはしない)
+  実際に音声認識を開始しようとすると失敗する
 
-**対応が必要**: このサイトをHTTPS化しない限り、本番URLでは音声入力ボタンを
-タップしても動作しない。選択肢:
-1. S3バケットの手前にCloudFrontディストリビューションを追加し、
-   CloudFrontのデフォルト証明書でHTTPS配信する(証明書取得不要、
-   `*.cloudfront.net`のURLになる)
-2. GitHub Pagesに切り替える(標準でHTTPS配信される)
-3. 独自ドメイン + ACM証明書 + CloudFront
+**対応**: S3バケットの手前にCloudFrontディストリビューションを追加し(`infra/lib/infra-web-stack.ts`)、
+デフォルト証明書(`*.cloudfront.net`、独自ドメイン・ACM証明書は不要)でHTTPS配信するようにした。
+`cloudfront:*`権限が不足していたため、`claude-code-dev`ユーザーにインラインポリシーで追加。
+IAM管理ポリシーの上限(10個)に達していたため、追加の管理ポリシーではなくインラインポリシー
+(`CloudFrontAccess`)で対応した。
 
-このセッションで使っているAWS認証情報には現時点で`cloudfront:*`権限が
-付与されていないため、1を実施するには権限追加が必要(過去の同様のケースと
-同じパターン)。次の対応をご検討ください。
+検証フェーズ限定の暫定構成という位置づけのため、価格クラスは最小(`PRICE_CLASS_100`)、
+WAF等の追加設定はしていない。ネイティブモバイルアプリへの移行後にこのWeb版が不要になれば、
+`InfraWebStack`ごと`cdk destroy`すれば消せる。
 
 ## 会話APIとの連携
 
@@ -117,6 +121,10 @@ flutter build web --release --no-web-resources-cdn \
 
 aws s3 sync build/web s3://voice-ai-partner-web-568529252964-ap-northeast-1/ \
   --region ap-northeast-1 --delete
+
+# CloudFront caches responses, so bust the cache after every deploy or the
+# HTTPS URL keeps serving the old build for a while.
+aws cloudfront create-invalidation --distribution-id EWNS21M4N3R3L --paths "/*"
 ```
 
 `--no-web-resources-cdn` は必須。付けないとCanvasKit/フォントをGoogleのCDN

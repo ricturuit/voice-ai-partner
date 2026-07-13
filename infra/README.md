@@ -8,7 +8,9 @@ AWS CDK (TypeScript) project for the Phase 1 backend. Region: `ap-northeast-1`.
 - `InfraStack`: health-check Lambda, conversation Lambda (Claude + ElevenLabs
   TTS), Secrets Manager secrets (depends on `InfraCoreStack`)
 - `InfraWebStack`: public S3 static-website bucket hosting the Flutter web
-  client (`../app`)
+  client (`../app`), with a CloudFront distribution in front of it for
+  HTTPS (needed for the browser's Web Speech API / microphone access,
+  which requires a secure context — see `app/README.md`)
 
 ### Why S3 static hosting instead of GitHub Pages
 
