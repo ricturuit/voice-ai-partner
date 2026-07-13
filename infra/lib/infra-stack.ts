@@ -18,13 +18,13 @@ export class InfraStack extends cdk.Stack {
     const { shortTermMemoryTable, artifactsBucket } = props;
 
     // --- Secrets Manager: API key placeholders (filled in manually later) ---
-    new secretsmanager.Secret(this, 'ClaudeApiKeySecret', {
+    const claudeApiKeySecret = new secretsmanager.Secret(this, 'ClaudeApiKeySecret', {
       secretName: 'claude-api-key',
       description: 'Claude API key (placeholder - fill in manually)',
       secretStringValue: cdk.SecretValue.unsafePlainText('REPLACE_ME'),
     });
 
-    new secretsmanager.Secret(this, 'ElevenLabsApiKeySecret', {
+    const elevenLabsApiKeySecret = new secretsmanager.Secret(this, 'ElevenLabsApiKeySecret', {
       secretName: 'elevenlabs-api-key',
       description: 'ElevenLabs API key (placeholder - fill in manually)',
       secretStringValue: cdk.SecretValue.unsafePlainText('REPLACE_ME'),
@@ -84,6 +84,61 @@ export class InfraStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'SharedApiSecretName', {
       value: sharedApiSecret.secretName,
       description: 'Secrets Manager secret holding the shared API secret clients must send as x-api-secret',
+    });
+
+    // --- Lambda: conversation endpoint (Claude + ElevenLabs TTS) ---
+    const conversationLogGroup = new logs.LogGroup(this, 'ConversationFunctionLogGroup', {
+      logGroupName: '/aws/lambda/voice-ai-partner-conversation',
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // ElevenLabs preset voice ("Rachel") used until a cloned voice ID is
+    // available. Override with `-c elevenLabsVoiceId=<id>` at deploy time,
+    // or by cdk.json's `context.elevenLabsVoiceId`, to swap it without any
+    // code changes.
+    const elevenLabsVoiceId =
+      (this.node.tryGetContext('elevenLabsVoiceId') as string | undefined) ??
+      '21m00Tcm4TlvDq8ikWAM';
+
+    const conversationFn = new lambda.Function(this, 'ConversationFunction', {
+      functionName: 'voice-ai-partner-conversation',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/conversation'),
+      timeout: cdk.Duration.seconds(60),
+      memorySize: 256,
+      logGroup: conversationLogGroup,
+      environment: {
+        SHORT_TERM_MEMORY_TABLE_NAME: shortTermMemoryTable.tableName,
+        ARTIFACTS_BUCKET_NAME: artifactsBucket.bucketName,
+        SHARED_API_SECRET_ARN: sharedApiSecret.secretArn,
+        CLAUDE_API_KEY_SECRET_ARN: claudeApiKeySecret.secretArn,
+        ELEVENLABS_API_KEY_SECRET_ARN: elevenLabsApiKeySecret.secretArn,
+        ELEVENLABS_VOICE_ID: elevenLabsVoiceId,
+        CLAUDE_MODEL: 'claude-haiku-4-5-20251001',
+        ELEVENLABS_MODEL_ID: 'eleven_multilingual_v2',
+      },
+    });
+
+    const conversationUrl = conversationFn.addFunctionUrl({
+      authType: lambda.FunctionUrlAuthType.NONE,
+      cors: {
+        allowedOrigins: ['*'],
+        allowedMethods: [lambda.HttpMethod.POST],
+        allowedHeaders: ['x-api-secret', 'content-type'],
+      },
+    });
+
+    shortTermMemoryTable.grantReadWriteData(conversationFn);
+    artifactsBucket.grantReadWrite(conversationFn);
+    sharedApiSecret.grantRead(conversationFn);
+    claudeApiKeySecret.grantRead(conversationFn);
+    elevenLabsApiKeySecret.grantRead(conversationFn);
+
+    new cdk.CfnOutput(this, 'ConversationFunctionUrl', {
+      value: conversationUrl.url,
+      description: 'POST endpoint for the conversation Lambda (Claude + ElevenLabs TTS)',
     });
   }
 }

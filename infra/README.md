@@ -5,8 +5,8 @@ AWS CDK (TypeScript) project for the Phase 1 backend. Region: `ap-northeast-1`.
 ## Stacks
 
 - `InfraCoreStack`: DynamoDB short-term memory table, S3 artifacts/logs bucket
-- `InfraStack`: health-check Lambda + Function URL, Secrets Manager secrets
-  (depends on `InfraCoreStack`)
+- `InfraStack`: health-check Lambda, conversation Lambda (Claude + ElevenLabs
+  TTS), Secrets Manager secrets (depends on `InfraCoreStack`)
 
 ## Useful commands
 
@@ -74,3 +74,73 @@ Secrets Manager supports rotation — if the secret is rotated, any client
 holding a stale copy will start getting `401`s, so the distribution
 mechanism to the Flutter app needs to account for that (e.g. fetch it from
 a config endpoint at app startup rather than baking it into the binary).
+
+## Conversation endpoint
+
+`InfraStack.ConversationFunctionUrl` — `POST`, same `x-api-secret` header
+auth as the health check. Loads recent DynamoDB history for the session,
+asks Claude for a reply with that history as context, synthesizes speech
+for the reply via ElevenLabs, stores the mp3 in S3, and returns a signed
+URL for it.
+
+### Request / response
+
+```
+curl -X POST "<ConversationFunctionUrl>" \
+  -H "x-api-secret: <secret value>" \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId":"test-001","text":"こんにちは"}'
+```
+
+```json
+{
+  "text": "<Claude's reply>",
+  "audioUrl": "<S3 signed URL, valid for 1 hour>"
+}
+```
+
+Errors: `400` invalid input, `401` bad/missing `x-api-secret`, `502` Claude
+or ElevenLabs API call failed (see CloudWatch Logs
+`/aws/lambda/voice-ai-partner-conversation` for the upstream error body),
+`500` unexpected error.
+
+### DynamoDB conversation history schema
+
+Table `voice-ai-partner-short-term-memory`, one item per message:
+
+| Attribute | Type | Notes |
+|---|---|---|
+| `sessionId` | String (PK) | as sent by the client |
+| `createdAt` | Number (SK) | `Date.now()` in ms; assistant turn uses `+1` so it sorts after the user turn from the same request |
+| `role` | String | `"user"` or `"assistant"` |
+| `message` | String | the raw text |
+| `expiresAt` | Number | TTL — unix seconds, 6 hours from write time |
+
+Each request queries the last 20 items for the session (`ScanIndexForward:
+false`, `Limit: 20`), reverses them to chronological order, and sends them
+to Claude as `messages: [{role, content}, ...]` ahead of the new user
+turn. History rolls off automatically via DynamoDB TTL — nothing to clean
+up manually.
+
+### Swapping in a cloned ElevenLabs voice
+
+The voice is controlled by the `ELEVENLABS_VOICE_ID` environment variable
+on `ConversationFunction`, defaulting to ElevenLabs' premade "Rachel"
+voice (`21m00Tcm4TlvDq8ikWAM`) so Phase 1 works before a cloned voice
+exists. Two ways to change it once you have a cloned voice ID:
+
+1. **Redeploy with a CDK context override** (no code change):
+   ```
+   cd infra
+   npx cdk deploy InfraStack --context elevenLabsVoiceId=<your voice id> --require-approval never
+   ```
+   To make it the permanent default, add `"elevenLabsVoiceId": "<id>"` to
+   the `context` block in `cdk.json` instead of passing `-c` every time.
+2. **Edit the environment variable directly** in the Lambda console (fast
+   for testing, but gets overwritten on the next `cdk deploy` unless you
+   also update `cdk.json`/the context).
+
+`CLAUDE_MODEL` (default `claude-haiku-4-5-20251001`) and
+`ELEVENLABS_MODEL_ID` (default `eleven_multilingual_v2`, supports
+Japanese) are also plain environment variables on the same function if
+those need to change later.
