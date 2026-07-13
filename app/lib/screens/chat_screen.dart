@@ -130,7 +130,17 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _textController.text = result.recognizedWords;
       _textController.selection = TextSelection.collapsed(offset: _textController.text.length);
+      if (result.finalResult) {
+        // The recognizer itself decided the utterance is complete (silence
+        // detected) and has already stopped listening — send immediately so
+        // a full voice conversation doesn't require tapping send for every
+        // turn. Typed text still goes through the send button as before.
+        _isListening = false;
+      }
     });
+    if (result.finalResult) {
+      _handleSend();
+    }
   }
 
   Future<void> _handleSend() async {
