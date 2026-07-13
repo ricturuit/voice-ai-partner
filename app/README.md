@@ -89,6 +89,19 @@ aws s3 sync build/web s3://voice-ai-partner-web-568529252964-ap-northeast-1/ \
   正しく `Access-Control-Allow-Origin` / `-Headers` / `-Methods` を返すことを確認
 - 会話API自体は別途curlで何度もE2E動作確認済み(`infra/README.md`参照)
 
+## 既知の制限: 日本語フォントがGoogle Fonts CDNに依存している
+
+`--no-web-resources-cdn` はCanvasKit/Roboto本体には効くが、Flutter Webは
+日本語などCJK文字のグリフを表示する際、Noto Sans SCなどのフォールバック
+フォントを実行時に `fonts.gstatic.com` から動的取得する仕組みが別途動いている
+(この会話アプリの主目的が日本語表示なので影響が大きい)。通常のインター
+ネット環境なら問題なく取得できるが、Google Fonts CDNをブロックする
+ネットワーク(一部の企業網、中国本土など)ではテキストが表示されない。
+
+恒久対応するなら、日本語フォント(Noto Sans JPなど)をアプリのassetとして
+同梱し `ThemeData(fontFamily: ...)` で明示指定して動的取得自体を発生させない
+のが良い。Phase 1では未対応(現状のフォールバック取得で通常は動く)。
+
 ## 今後(モバイル版への展開時)
 
 - `flutter create` の標準構成のため `flutter build ios` / `flutter build apk` は
