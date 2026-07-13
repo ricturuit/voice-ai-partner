@@ -28,6 +28,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   final ConversationApi _api = ConversationApi();
   final AudioPlayer _audioPlayer = AudioPlayer();
+  // Separate player for the short silence-detected cue so it never gets
+  // tangled up with the (longer, sometimes-blocked, sometimes-timing-out)
+  // reply-audio playback logic in _playAudio.
+  final AudioPlayer _cuePlayer = AudioPlayer();
   final SpeechToText _speech = SpeechToText();
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -50,6 +54,13 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _silenceTimer;
   int? _silenceCountdown;
 
+  // Brief grace period right after (re)starting the recognizer during which
+  // we ignore silence-countdown triggers — mainly so a stray/late result
+  // from the just-finished turn (or the reply's own TTS audio, in case any
+  // of it leaks into the mic) can't immediately fire another countdown.
+  static const _postListenGracePeriod = Duration(seconds: 1);
+  DateTime? _silenceGuardUntil;
+
   @override
   void initState() {
     super.initState();
@@ -63,6 +74,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _textController.dispose();
     _scrollController.dispose();
     _audioPlayer.dispose();
+    _cuePlayer.dispose();
     _speech.stop();
     super.dispose();
   }
@@ -145,8 +157,19 @@ class _ChatScreenState extends State<ChatScreen> {
     await _startListening();
   }
 
-  Future<void> _startListening() async {
+  // [isAutoRestart] is true when this is the app re-arming the mic between
+  // conversation turns (not a direct user tap). Browsers can briefly refuse
+  // to start a new SpeechRecognition session immediately after the previous
+  // one stopped, so on that path we wait a moment and retry quietly instead
+  // of alarming the user with an error for something they didn't do.
+  Future<void> _startListening({bool isAutoRestart = false}) async {
+    if (isAutoRestart) {
+      await Future.delayed(const Duration(milliseconds: 400));
+      if (!mounted || !_conversationModeActive) return;
+    }
+
     setState(() => _isListening = true);
+    _silenceGuardUntil = DateTime.now().add(_postListenGracePeriod);
     try {
       await _speech.listen(
         onResult: _handleSpeechResult,
@@ -157,12 +180,33 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       );
     } catch (e) {
-      debugPrint('Speech recognition failed to start: $e');
-      if (mounted) {
-        setState(() {
-          _isListening = false;
-          _conversationModeActive = false;
-        });
+      debugPrint('Speech recognition failed to start (autoRestart=$isAutoRestart): $e');
+      if (!mounted) return;
+      if (isAutoRestart) {
+        // One quiet retry after a slightly longer pause before giving up.
+        await Future.delayed(const Duration(milliseconds: 800));
+        if (!mounted || !_conversationModeActive) return;
+        try {
+          _silenceGuardUntil = DateTime.now().add(_postListenGracePeriod);
+          await _speech.listen(
+            onResult: _handleSpeechResult,
+            listenOptions: SpeechListenOptions(
+              localeId: 'ja_JP',
+              partialResults: true,
+              cancelOnError: true,
+            ),
+          );
+          return;
+        } catch (e2) {
+          debugPrint('Speech recognition retry failed: $e2');
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _isListening = false;
+        _conversationModeActive = false;
+      });
+      if (!isAutoRestart) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('音声入力を開始できませんでした: $e')),
         );
@@ -185,8 +229,22 @@ class _ChatScreenState extends State<ChatScreen> {
   void _restartSilenceCountdown() {
     _silenceTimer?.cancel();
     if (!_conversationModeActive) return;
+
+    final guardUntil = _silenceGuardUntil;
+    if (guardUntil != null && DateTime.now().isBefore(guardUntil)) {
+      // Within the brief post-(re)start grace period — don't start counting
+      // down yet, just show the plain "listening" state.
+      setState(() => _silenceCountdown = null);
+      return;
+    }
+
     setState(() => _silenceCountdown = _silenceThresholdSeconds);
+    var cuePlayed = false;
     _silenceTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!cuePlayed) {
+        cuePlayed = true;
+        _playSilenceCue();
+      }
       final remaining = (_silenceCountdown ?? 1) - 1;
       if (remaining <= 0) {
         timer.cancel();
@@ -196,6 +254,16 @@ class _ChatScreenState extends State<ChatScreen> {
         setState(() => _silenceCountdown = remaining);
       }
     });
+  }
+
+  Future<void> _playSilenceCue() async {
+    try {
+      await _cuePlayer.play(AssetSource('sounds/silence_cue.wav'), volume: 0.18);
+    } catch (e) {
+      // Purely a nice-to-have UI cue — never let it affect the actual
+      // conversation flow.
+      debugPrint('Silence cue playback failed: $e');
+    }
   }
 
   Future<void> _handleSilenceTimeout() async {
@@ -208,7 +276,7 @@ class _ChatScreenState extends State<ChatScreen> {
     // next turn, unless the user turned conversation mode off in the
     // meantime (e.g. while the previous turn was still sending).
     if (_conversationModeActive && mounted) {
-      await _startListening();
+      await _startListening(isAutoRestart: true);
     }
   }
 
