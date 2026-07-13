@@ -59,7 +59,7 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       });
       if (result.audioUrl != null) {
-        await _playAudio(result.audioUrl!);
+        await _playAudio(result.audioUrl!, isManualReplay: false);
       }
     } on ConversationApiException catch (e) {
       setState(() {
@@ -73,12 +73,23 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _playAudio(String url) async {
+  Future<void> _playAudio(String url, {required bool isManualReplay}) async {
     try {
       await _audioPlayer.play(UrlSource(url));
-    } catch (_) {
-      // Autoplay can be blocked by the browser until the user interacts with
-      // the page; the "音声を再生" button on the bubble lets them retry.
+    } catch (e) {
+      // Always log so playback failures (blocked autoplay, CORS, expired
+      // signed URL, ...) are visible in the browser console even when we
+      // don't show the user an error.
+      debugPrint('Audio playback failed for $url: $e');
+      // Autoplay can be blocked by the browser until the user interacts
+      // with the page — that's expected and the "音声を再生" button lets
+      // them retry, so stay silent there. A manual tap failing is not
+      // expected, so surface it.
+      if (isManualReplay && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('音声を再生できませんでした: $e')),
+        );
+      }
     }
   }
 
@@ -114,7 +125,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         return ChatBubble(
                           message: message,
                           onReplayAudio: message.audioUrl != null
-                              ? () => _playAudio(message.audioUrl!)
+                              ? () => _playAudio(message.audioUrl!, isManualReplay: true)
                               : null,
                         );
                       },

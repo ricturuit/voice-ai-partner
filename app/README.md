@@ -88,6 +88,43 @@ aws s3 sync build/web s3://voice-ai-partner-web-568529252964-ap-northeast-1/ \
 - 会話APIへのCORSプリフライト(OPTIONS)がこのサイトのオリジンに対して
   正しく `Access-Control-Allow-Origin` / `-Headers` / `-Methods` を返すことを確認
 - 会話API自体は別途curlで何度もE2E動作確認済み(`infra/README.md`参照)
+- 音声再生に必要なS3バケットのCORS設定を確認・修正済み(次項)
+
+## 修正済み: 音声が再生されない不具合(2026-07-13)
+
+**症状**: テキスト返答は表示されるが、自動再生・手動再生ボタンのどちらでも
+音声が再生されなかった。
+
+**原因**: 音声保存用S3バケット(`voice-ai-partner-artifacts-...`)にCORS設定が
+存在しなかった。`audioplayers` のWeb実装(`audioplayers_web`)は、音量・
+パン(左右バランス)調整のためWeb Audio APIの`MediaElementAudioSourceNode`に
+`<audio>`要素を接続する構造になっており、そのために`<audio>`要素へ
+`crossOrigin = "anonymous"` を明示的に設定している
+(`wrapped_player.dart`)。この設定がある`<audio>`要素はブラウザが
+CORSチェック付きリクエストとして音声を取得しようとするため、S3側に
+`Access-Control-Allow-Origin` 等が無いと読み込みに失敗し、再生されない
+(かつ`chat_screen.dart`側で例外を握りつぶしていたためエラーも見えなかった)。
+
+**対応**:
+1. `infra/lib/infra-core-stack.ts` の `ArtifactsBucket` にCORS設定を追加
+   (`GET`/`HEAD`許可、`AllowedOrigins: ["*"]`)。バケット自体は署名付きURL
+   経由でしか読めない非公開設定のままなので、CORSを緩めても認可の範囲は
+   広がらない(ブラウザJSが結果を読めるかどうかだけの話)
+2. `chat_screen.dart`: 再生失敗時に必ず `debugPrint` でログを残すよう変更。
+   自動再生の失敗(ブラウザの自動再生ポリシーでブロックされるケース)は
+   従来通り無言だが、「音声を再生」ボタンでの手動再生が失敗した場合は
+   SnackBarでエラーを表示するようにした(今後同種の問題が起きた際に
+   気づけるように)
+
+**検証**: 修正後、S3にCORS設定が反映されたことを`get-bucket-cors`で確認。
+実際に新しい音声ファイルを生成し、ブラウザの`<audio crossorigin="anonymous">`
+が送るのと同じ形のリクエスト(`Origin`ヘッダー付き、`Range`リクエスト込み)を
+curlで再現したところ、`Access-Control-Allow-Origin: *` 等が正しく返り、
+`206 Partial Content` でオーディオデータを取得できることを確認した。
+ヘッドレスブラウザでの実再生確認は、このセッションのサンドボックス環境が
+S3ドメインへの直接アクセスを許可していない制約により完走できなかった
+(同じ制約は以前の動作確認時にも発生している。実機のブラウザは通常の
+インターネット接続を使うため、この制約の影響を受けない)。
 
 ## 既知の制限: 日本語フォントがGoogle Fonts CDNに依存している
 
