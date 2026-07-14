@@ -60,6 +60,11 @@ class ConversationController extends ChangeNotifier {
   // immediately (AudioPlayer.stop() does not itself fire onPlayerComplete).
   Completer<void>? _replayCompleter;
 
+  // Once the shared audioPlayer's AudioContext has been resumed by a
+  // genuine user gesture, it stays resumed for the rest of the session — no
+  // need to repeat the unlock clip on every subsequent turn.
+  bool _audioContextUnlocked = false;
+
   ConversationController() {
     sessionId = const Uuid().v4();
     _initSpeech();
@@ -162,14 +167,20 @@ class ConversationController extends ChangeNotifier {
       return;
     }
 
-    // Fire-and-forget, synchronously, before any await below — this rides
-    // on the same user-gesture callstack as the tap so the browser counts
-    // it as a genuine user-initiated playback, unlocking `audioPlayer` for
-    // later programmatic (non-gesture) playback of the reply audio.
-    _unlockAudioPlayback();
-
     isListening = true;
     notifyListeners();
+
+    // Invoked before any other await, so the underlying play() call still
+    // rides on the same user-gesture callstack as the tap, unlocking
+    // `audioPlayer`'s AudioContext for later programmatic (non-gesture)
+    // playback of the reply audio. Must be awaited to full completion (not
+    // fire-and-forget) — audioplayers_web mutates shared player/source state
+    // (recreateNode, AudioContext.resume, ...) as part of play(), and a
+    // still-in-flight unlock call left running concurrently with the real
+    // reply's play() call races to mutate that same state, sometimes
+    // leaving the silent clip's <audio> element in place instead of the
+    // reply's (audio indicator active, but nothing audible).
+    await _unlockAudioPlayback();
     _silenceGuardUntil = DateTime.now().add(_postListenGracePeriod);
     try {
       await _speech.listen(
@@ -191,11 +202,15 @@ class ConversationController extends ChangeNotifier {
     }
   }
 
-  void _unlockAudioPlayback() {
-    audioPlayer.play(AssetSource('sounds/unlock_silent.wav'), volume: 0.0).catchError((e) {
+  Future<void> _unlockAudioPlayback() async {
+    if (_audioContextUnlocked) return;
+    try {
+      await audioPlayer.play(AssetSource('sounds/unlock_silent.wav'), volume: 0.0);
+      _audioContextUnlocked = true;
+    } catch (e) {
       // Purely a best-effort unlock; never let it affect the actual flow.
       debugPrint('Audio unlock playback failed: $e');
-    });
+    }
   }
 
   void _handleSpeechResult(SpeechRecognitionResult result) {
@@ -268,13 +283,15 @@ class ConversationController extends ChangeNotifier {
     text = text.trim();
     if (text.isEmpty || isSending || isPlayingReply) return;
 
-    // Fire-and-forget, synchronously, before any await below — same trick as
-    // in startListening(). Without this, a text-only send (never touching
-    // the mic button) never unlocks the shared AudioPlayer with a genuine
+    // Invoked before any other await — same reasoning as in startListening()
+    // (must be awaited to full completion, not fire-and-forget, to avoid
+    // racing with the reply's later play() call on the same AudioPlayer).
+    // Without this at all, a text-only send (never touching the mic button)
+    // never unlocks the shared AudioPlayer's AudioContext with a genuine
     // user gesture, so the reply's automatic playback gets silently blocked
     // by the browser's autoplay policy once the API round-trip (which can
     // take several seconds) outlasts the click/Enter-key gesture.
-    _unlockAudioPlayback();
+    await _unlockAudioPlayback();
 
     _silenceTimer?.cancel();
     silenceCountdown = null;
