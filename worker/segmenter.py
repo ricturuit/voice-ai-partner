@@ -52,7 +52,8 @@ def segment(transcript_segments):
 
     message = _client.messages.create(
         model=config.claude_model,
-        max_tokens=8192,
+        max_tokens=16000,
+        thinking={"type": "disabled"},
         messages=[{"role": "user", "content": _PROMPT.format(transcript=lines)}],
     )
 
