@@ -24,14 +24,20 @@ def process(job):
     job_dir.mkdir(parents=True, exist_ok=True)
     local_source = job_dir / source_filename
 
+    log.info("job %s: downloading %s", job_id, src_key)
     storage_client.download(src_key, str(local_source))
 
     ok, reason = quality.check_source_quality(str(local_source))
     if not ok:
         raise RuntimeError(f"音質チェックで却下されました: {reason}")
 
+    log.info("job %s: transcribing (CPUの場合、長い音声ほど時間がかかります)", job_id)
     segments = transcribe.transcribe(str(local_source))
+    log.info("job %s: transcription done (%d segments)", job_id, len(segments))
+
+    log.info("job %s: requesting topic segmentation from Claude", job_id)
     clip_specs = segmenter.segment(segments)
+    log.info("job %s: got %d candidate clips", job_id, len(clip_specs))
 
     clips = []
     excluded = []
@@ -59,6 +65,7 @@ def process(job):
             "reason": spec["reason"],
         })
         storage_client.upload(str(clip_path), f"output/{job_id}/{clip_filename}")
+        log.info("job %s: uploaded %s (%.1fs-%.1fs, %s)", job_id, clip_filename, spec["start"], spec["end"], spec["topic"])
 
     csv_path = report.write_clips_csv(job_dir, clips)
     storage_client.upload(str(csv_path), f"output/{job_id}/clips.csv")

@@ -43,9 +43,15 @@ def segment(transcript_segments):
 
     message = _client.messages.create(
         model=config.claude_model,
-        max_tokens=4096,
+        max_tokens=8192,
         messages=[{"role": "user", "content": _PROMPT.format(transcript=lines)}],
     )
 
     text = message.content[0].text.strip()
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(
+            f"Claudeの応答をJSONとして解析できませんでした(音声が長すぎて応答が"
+            f"途中で切れた可能性があります): {e}\n応答冒頭: {text[:200]!r}"
+        ) from e
