@@ -47,7 +47,7 @@ def segment(transcript_segments):
         messages=[{"role": "user", "content": _PROMPT.format(transcript=lines)}],
     )
 
-    text = message.content[0].text.strip()
+    text = "".join(block.text for block in message.content if block.type == "text").strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:
