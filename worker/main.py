@@ -3,6 +3,7 @@ import shutil
 from pathlib import Path
 
 import cutter
+import quality
 import queue_client
 import report
 import segmenter
@@ -25,12 +26,28 @@ def process(job):
 
     storage_client.download(src_key, str(local_source))
 
+    ok, reason = quality.check_source_quality(str(local_source))
+    if not ok:
+        raise RuntimeError(f"音質チェックで却下されました: {reason}")
+
     segments = transcribe.transcribe(str(local_source))
     clip_specs = segmenter.segment(segments)
 
     clips = []
-    for i, spec in enumerate(clip_specs, start=1):
-        clip_filename = f"{i:03d}.wav"
+    excluded = []
+    clip_index = 0
+    for spec in clip_specs:
+        ok, reason = quality.evaluate_clip(spec, segments)
+        if not ok:
+            excluded.append({**spec, "reason": reason})
+            log.info(
+                "job %s: excluded candidate %.1f-%.1f (%s)",
+                job_id, spec["start"], spec["end"], reason,
+            )
+            continue
+
+        clip_index += 1
+        clip_filename = f"{clip_index:03d}.wav"
         clip_path = job_dir / clip_filename
         cutter.cut(str(local_source), str(clip_path), spec["start"], spec["end"])
 
@@ -46,7 +63,7 @@ def process(job):
     csv_path = report.write_clips_csv(job_dir, clips)
     storage_client.upload(str(csv_path), f"output/{job_id}/clips.csv")
 
-    report_path = report.write_report_md(job_dir, source_filename, clips)
+    report_path = report.write_report_md(job_dir, source_filename, clips, excluded)
     storage_client.upload(str(report_path), f"output/{job_id}/report.md")
 
     storage_client.move(src_key, f"archive/{source_filename}")

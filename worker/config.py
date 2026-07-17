@@ -15,7 +15,10 @@ class Config:
     claude_model: str = field(default_factory=lambda: os.environ.get("CLAUDE_MODEL", "claude-sonnet-5"))
     whisper_model: str = field(default_factory=lambda: os.environ.get("WHISPER_MODEL", "small"))
     ffmpeg_path: str = field(default_factory=lambda: os.environ.get("FFMPEG_PATH", "ffmpeg"))
+    ffprobe_path: str = field(default_factory=lambda: os.environ.get("FFPROBE_PATH", "ffprobe"))
     work_dir: str = field(default_factory=lambda: os.environ.get("WORK_DIR", "./work"))
+    min_bitrate_kbps: int = field(default_factory=lambda: int(os.environ.get("MIN_BITRATE_KBPS", "96")))
+    min_sample_rate_hz: int = field(default_factory=lambda: int(os.environ.get("MIN_SAMPLE_RATE_HZ", "32000")))
 
 
 config = Config()

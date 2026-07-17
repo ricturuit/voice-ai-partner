@@ -19,7 +19,8 @@ def write_clips_csv(output_dir, clips):
     return path
 
 
-def write_report_md(output_dir, source_filename, clips):
+def write_report_md(output_dir, source_filename, clips, excluded=None):
+    excluded = excluded or []
     total_duration = sum(c["end"] - c["start"] for c in clips)
     topics = sorted({c["topic"] for c in clips})
 
@@ -30,6 +31,7 @@ def write_report_md(output_dir, source_filename, clips):
         f"- 抽出件数: {len(clips)}",
         f"- 抽出時間合計: {total_duration:.1f} 秒",
         f"- 話題一覧: {', '.join(topics)}",
+        f"- 除外件数: {len(excluded)}",
         "",
         "## 採用区間と理由",
         "",
@@ -39,6 +41,14 @@ def write_report_md(output_dir, source_filename, clips):
             f"- `{clip['file']}` ({clip['start']:.1f}s - {clip['end']:.1f}s, "
             f"話題: {clip['topic']}): {clip['reason']}"
         )
+
+    if excluded:
+        lines += ["", "## 除外区間と理由", ""]
+        for item in excluded:
+            lines.append(
+                f"- {item['start']:.1f}s - {item['end']:.1f}s "
+                f"(話題候補: {item.get('topic', '-')}): {item['reason']}"
+            )
 
     path = Path(output_dir) / "report.md"
     path.write_text("\n".join(lines), encoding="utf-8")

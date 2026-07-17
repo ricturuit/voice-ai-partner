@@ -22,10 +22,12 @@
   → ローカルWorker (常時起動)
       1. SQSをロングポーリング
       2. S3 upload/ から音源をダウンロード
-      3. faster-whisper (small, CPU) で文字起こし
-      4. 文字起こしテキストのみをClaude APIへ送信し、話題境界(30秒〜3分、文の途中で切らない)をJSONで取得
-      5. ffmpegでJSON区間ごとにwav切り出し (001.wav, 002.wav, ...)
-      6. clips.csv / report.md を生成
+      3. ffprobeでソース音質チェック（ビットレート/サンプルレートが閾値未満ならerror/へ）
+      4. faster-whisper (small, CPU) で文字起こし（no_speech_probも取得）
+      5. 文字起こしテキスト（無音/笑い声の注記付き）のみをClaude APIへ送信し、話題境界(30秒〜3分、文の途中で切らない)をJSONで取得
+      6. no_speech_prob・笑い声比率が閾値を超える候補区間は採用せず除外
+      7. ffmpegでJSON区間ごとにloudnorm（音量正規化）しつつwav切り出し (001.wav, 002.wav, ...)
+      8. clips.csv / report.md（採用区間・除外区間と理由）を生成
   → 成果物をS3 output/{job_id}/ へアップロード
   → 成功: 原本を upload/ → archive/ へ移動、SQSメッセージ削除
   → 失敗: 原本を upload/ → error/ へ移動、SQSメッセージ削除（無限リトライ防止。DLQは別途上限到達時のみ）
@@ -51,6 +53,15 @@
 - **`voice-dataset-worker-user`**: ジョブキューの受信・削除、`upload/*` の読み取り、`output/* archive/* error/*` への書き込み、`upload/*` の削除（move実装のため）のみ。
 
 いずれも既存システムのIAMロール・ポリシーとは無関係の新規リソース。
+
+## 音質ゲート（ベストエフォート）
+
+話者は1名確定という前提のもと、以下をWorkerに実装している。いずれも「明らかに使えない音源・区間を機械的に弾く」ためのものであり、非可逆圧縮による音質劣化そのものを復元・保証するものではない。
+
+- **ソース音質チェック** (`worker/quality.py: check_source_quality`): ffprobeでビットレート・サンプルレートを確認し、`MIN_BITRATE_KBPS`（既定96kbps）/ `MIN_SAMPLE_RATE_HZ`（既定32000Hz）を下回る音源は文字起こし前に`error/`へ振り分ける。
+- **ラウドネス正規化** (`worker/cutter.py`): クリップ切り出し時にffmpegの`loudnorm`（I=-16 LUFS, TP=-1.5dBTP, LRA=11）を適用し、クリップ間の音量ばらつきを揃える。
+- **無音/雑音・笑い声区間の除外** (`worker/quality.py: evaluate_clip`): faster-whisperの`no_speech_prob`が閾値（既定0.5）を超える区間、および文字起こしテキストが笑い声パターン（正規表現、日英の代表的な表現のみ）に閾値以上（既定30%）一致する区間は採用せず、`report.md`の「除外区間と理由」に記録する。Claudeへ渡す文字起こしにも`[NOISE]`/`[LAUGH]`の注記を付け、区間選定時点でも避けるよう指示している。
+- 笑い声検知は正規表現ベースのため、明示的にテキスト化されない笑い声（Whisperが無視・誤変換した場合）は検知できないことがある。取りこぼしがあり得るベストエフォートの仕組みである。
 
 ## SQSメッセージスキーマ
 
