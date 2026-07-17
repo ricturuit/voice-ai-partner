@@ -7,9 +7,11 @@
 
 import argparse
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 import cutter
+import naming
 import quality
 import report
 import segmenter
@@ -42,9 +44,11 @@ def main():
     clip_specs = segmenter.segment(segments)
     log.info("候補区間: %d件", len(clip_specs))
 
+    uploaded_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     clips = []
     excluded = []
-    clip_index = 0
+    used_names = set()
     for spec in clip_specs:
         ok, reason = quality.evaluate_clip(spec, segments)
         if not ok:
@@ -52,8 +56,7 @@ def main():
             log.info("除外: %.1f-%.1f (%s)", spec["start"], spec["end"], reason)
             continue
 
-        clip_index += 1
-        clip_filename = f"{clip_index:03d}.wav"
+        clip_filename = naming.build_clip_filename(audio_path.name, uploaded_at, spec["label"], used_names)
         clip_path = output_dir / clip_filename
         cutter.cut(str(audio_path), str(clip_path), spec["start"], spec["end"])
 

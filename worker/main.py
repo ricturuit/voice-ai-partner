@@ -3,6 +3,7 @@ import shutil
 from pathlib import Path
 
 import cutter
+import naming
 import quality
 import queue_client
 import report
@@ -41,7 +42,7 @@ def process(job):
 
     clips = []
     excluded = []
-    clip_index = 0
+    used_names = set()
     for spec in clip_specs:
         ok, reason = quality.evaluate_clip(spec, segments)
         if not ok:
@@ -52,8 +53,9 @@ def process(job):
             )
             continue
 
-        clip_index += 1
-        clip_filename = f"{clip_index:03d}.wav"
+        clip_filename = naming.build_clip_filename(
+            source_filename, job["uploaded_at"], spec["label"], used_names,
+        )
         clip_path = job_dir / clip_filename
         cutter.cut(str(local_source), str(clip_path), spec["start"], spec["end"])
 
