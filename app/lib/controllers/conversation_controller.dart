@@ -60,11 +60,6 @@ class ConversationController extends ChangeNotifier {
   // immediately (AudioPlayer.stop() does not itself fire onPlayerComplete).
   Completer<void>? _replayCompleter;
 
-  // Once the shared audioPlayer's AudioContext has been resumed by a
-  // genuine user gesture, it stays resumed for the rest of the session — no
-  // need to repeat the unlock clip on every subsequent turn.
-  bool _audioContextUnlocked = false;
-
   ConversationController() {
     sessionId = const Uuid().v4();
     _initSpeech();
@@ -202,8 +197,17 @@ class ConversationController extends ChangeNotifier {
     }
   }
 
+  // Deliberately re-run on every gesture-linked call, not just once per
+  // session — mobile Safari (and other mobile browsers) can re-suspend an
+  // AudioContext after a period without touch interaction (e.g. the several
+  // seconds spent listening for speech while waiting for the silence
+  // timeout), and once suspended it stays that way for every later
+  // automatic playback until a fresh gesture resumes it again. This is why
+  // auto-play worked for the first turn or two after opening the app and
+  // then silently stopped — the one-time-only version of this unlock left
+  // the context unresumed for later turns. Manual replay always worked
+  // throughout because tapping "音声を再生" is itself a fresh gesture.
   Future<void> _unlockAudioPlayback() async {
-    if (_audioContextUnlocked) return;
     try {
       // No volume: parameter here — AudioPlayer.setVolume() persists on the
       // instance until explicitly changed again, so passing volume: 0.0
@@ -212,7 +216,6 @@ class ConversationController extends ChangeNotifier {
       // doesn't also pass its own volume. The asset itself is already pure
       // silence, so there's nothing to gain from also zeroing the gain.
       await audioPlayer.play(AssetSource('sounds/unlock_silent.wav'));
-      _audioContextUnlocked = true;
     } catch (e) {
       // Purely a best-effort unlock; never let it affect the actual flow.
       debugPrint('Audio unlock playback failed: $e');
