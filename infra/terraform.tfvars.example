@@ -1,0 +1,5 @@
+# cp terraform.tfvars.example terraform.tfvars して値を設定してください。
+# terraform.tfvars はgit管理対象外です（.gitignore参照）。
+
+aws_region    = "ap-northeast-1"
+bucket_suffix = "123456789012" # あなたのAWSアカウントIDなど、グローバルに一意な文字列

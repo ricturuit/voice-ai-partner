@@ -1,0 +1,16 @@
+# Terraform
+infra/.terraform/
+infra/.terraform.lock.hcl
+infra/*.tfstate
+infra/*.tfstate.*
+infra/terraform.tfvars
+infra/build/
+
+# Worker
+worker/.env
+worker/work/
+worker/__pycache__/
+worker/venv/
+worker/.venv/
+**/__pycache__/
+*.pyc
