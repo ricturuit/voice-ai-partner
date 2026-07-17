@@ -205,7 +205,13 @@ class ConversationController extends ChangeNotifier {
   Future<void> _unlockAudioPlayback() async {
     if (_audioContextUnlocked) return;
     try {
-      await audioPlayer.play(AssetSource('sounds/unlock_silent.wav'), volume: 0.0);
+      // No volume: parameter here — AudioPlayer.setVolume() persists on the
+      // instance until explicitly changed again, so passing volume: 0.0
+      // would silence every later play() call on this same shared
+      // audioPlayer (including real replies and manual replays) that
+      // doesn't also pass its own volume. The asset itself is already pure
+      // silence, so there's nothing to gain from also zeroing the gain.
+      await audioPlayer.play(AssetSource('sounds/unlock_silent.wav'));
       _audioContextUnlocked = true;
     } catch (e) {
       // Purely a best-effort unlock; never let it affect the actual flow.
@@ -363,7 +369,13 @@ class ConversationController extends ChangeNotifier {
       // play() resolves once playback *starts*, not once it finishes, and
       // some browsers leave it pending forever if autoplay is blocked — so
       // bound it, then separately wait for the real completion event.
-      await audioPlayer.play(UrlSource(url)).timeout(const Duration(seconds: 10));
+      //
+      // volume is passed explicitly on every real playback call — it's a
+      // setting that persists on the AudioPlayer instance until changed
+      // again (not reset per-source), so relying on "whatever it happened
+      // to be left at" is fragile (this is exactly how a past unlock-sound
+      // tweak silently zeroed all future playback on this player).
+      await audioPlayer.play(UrlSource(url), volume: 1.0).timeout(const Duration(seconds: 10));
       await completer.future.timeout(const Duration(seconds: 30), onTimeout: () {});
     } catch (e) {
       // Always log so playback failures (blocked autoplay, CORS, expired
