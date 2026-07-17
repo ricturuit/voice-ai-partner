@@ -1,9 +1,12 @@
 import json
+import re
 
 import anthropic
 
 from config import config
 from quality import NO_SPEECH_PROB_THRESHOLD, is_laughter
+
+_CODE_FENCE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```$", re.DOTALL)
 
 _client = anthropic.Anthropic(api_key=config.anthropic_api_key)
 
@@ -54,10 +57,15 @@ def segment(transcript_segments):
     )
 
     text = "".join(block.text for block in message.content if block.type == "text").strip()
+
+    fence_match = _CODE_FENCE.match(text)
+    if fence_match:
+        text = fence_match.group(1).strip()
+
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:
         raise RuntimeError(
-            f"Claudeの応答をJSONとして解析できませんでした(音声が長すぎて応答が"
-            f"途中で切れた可能性があります): {e}\n応答冒頭: {text[:200]!r}"
+            f"Claudeの応答をJSONとして解析できませんでした(応答が途中で切れたか、"
+            f"想定外の形式だった可能性があります): {e}\n応答冒頭: {text[:200]!r}"
         ) from e
