@@ -1,3 +1,8 @@
+output "aws_region" {
+  description = "worker/.env の AWS_REGION に設定する値"
+  value       = var.aws_region
+}
+
 output "bucket_name" {
   description = "voice-dataset用S3バケット名"
   value       = aws_s3_bucket.dataset.bucket
