@@ -60,6 +60,17 @@ class ConversationController extends ChangeNotifier {
   // immediately (AudioPlayer.stop() does not itself fire onPlayerComplete).
   Completer<void>? _replayCompleter;
 
+  // Keeps audioPlayer's AudioContext from being auto-suspended by the
+  // browser during the listening phase, where several seconds can pass
+  // with no touch interaction at all (the user is talking, not tapping).
+  // Only runs while isListening — turns started/ended by a direct tap
+  // (startListening/stopListeningAndSend) already re-unlock right there,
+  // so this specifically covers the auto silence-timeout path, where the
+  // eventual sendText() call is Timer-triggered, not gesture-linked, and
+  // can no longer resume an already-suspended context on its own.
+  static const _audioKeepAliveInterval = Duration(seconds: 3);
+  Timer? _audioKeepAliveTimer;
+
   ConversationController() {
     sessionId = const Uuid().v4();
     _initSpeech();
@@ -68,12 +79,25 @@ class ConversationController extends ChangeNotifier {
   @override
   void dispose() {
     _silenceTimer?.cancel();
+    _audioKeepAliveTimer?.cancel();
     inputTextController.dispose();
     audioPlayer.dispose();
     _cuePlayer.dispose();
     _speech.stop();
     _errorStreamController.close();
     super.dispose();
+  }
+
+  void _startAudioKeepAlive() {
+    _audioKeepAliveTimer?.cancel();
+    _audioKeepAliveTimer = Timer.periodic(_audioKeepAliveInterval, (_) {
+      _unlockAudioPlayback();
+    });
+  }
+
+  void _stopAudioKeepAlive() {
+    _audioKeepAliveTimer?.cancel();
+    _audioKeepAliveTimer = null;
   }
 
   void _emitError(String message) {
@@ -104,6 +128,7 @@ class ConversationController extends ChangeNotifier {
 
   void _handleSpeechError(SpeechRecognitionError error) {
     _silenceTimer?.cancel();
+    _stopAudioKeepAlive();
     isListening = false;
     silenceCountdown = null;
     notifyListeners();
@@ -112,6 +137,7 @@ class ConversationController extends ChangeNotifier {
 
   void _handleSpeechStatus(String status) {
     if (status == 'notListening' || status == 'done') {
+      _stopAudioKeepAlive();
       isListening = false;
       notifyListeners();
     }
@@ -129,6 +155,7 @@ class ConversationController extends ChangeNotifier {
 
   Future<void> stopListeningAndSend() async {
     _silenceTimer?.cancel();
+    _stopAudioKeepAlive();
     final pendingText = inputTextController.text.trim();
     await _speech.stop();
     isListening = false;
@@ -143,6 +170,7 @@ class ConversationController extends ChangeNotifier {
   /// whatever was recognized, going straight back to idle without sending.
   Future<void> cancelListening() async {
     _silenceTimer?.cancel();
+    _stopAudioKeepAlive();
     await _speech.stop();
     isListening = false;
     silenceCountdown = null;
@@ -176,6 +204,11 @@ class ConversationController extends ChangeNotifier {
     // leaving the silent clip's <audio> element in place instead of the
     // reply's (audio indicator active, but nothing audible).
     await _unlockAudioPlayback();
+    // Keeps re-pinging audioPlayer's AudioContext for as long as listening
+    // continues, so a long pause before speech is detected (or before the
+    // silence timeout fires) doesn't let it idle-suspend with no gesture
+    // available later to resume it.
+    _startAudioKeepAlive();
     _silenceGuardUntil = DateTime.now().add(_postListenGracePeriod);
     try {
       await _speech.listen(
@@ -191,6 +224,7 @@ class ConversationController extends ChangeNotifier {
       _playReadyCue();
     } catch (e) {
       debugPrint('Speech recognition failed to start: $e');
+      _stopAudioKeepAlive();
       isListening = false;
       notifyListeners();
       _emitError('音声入力を開始できませんでした: $e');
@@ -277,6 +311,7 @@ class ConversationController extends ChangeNotifier {
   Future<void> _handleSilenceTimeout() async {
     final text = inputTextController.text.trim();
     await _speech.stop();
+    _stopAudioKeepAlive();
     isListening = false;
     notifyListeners();
     if (text.isNotEmpty) {
