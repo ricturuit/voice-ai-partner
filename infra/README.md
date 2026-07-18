@@ -205,6 +205,26 @@ bills per character synthesized) regardless of whether the prompt is
 followed exactly. Lower it further for shorter/cheaper replies, or raise
 it if replies are getting cut off mid-sentence.
 
+**2026-07-18 update**: removed the "おはようございナース！" first-greeting
+instruction (no longer wanted). Also investigated whether Anthropic
+[prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
+could reduce the per-turn cost of resending this system prompt every
+request — **it can't, for this model/prompt combination**. Prompt caching
+has a minimum cacheable-prefix size that varies by model; for
+`claude-haiku-4-5` (the model this function uses) that minimum is **4096
+tokens**, and `system-prompt.md` is only **~1487 tokens**
+(`POST /v1/messages/count_tokens`). Below that minimum, a `cache_control`
+marker silently does nothing (no error, `cache_creation_input_tokens`
+stays `0`) — so it wasn't implemented, to avoid adding code complexity
+for zero actual benefit. Given the current Haiku pricing ($1/$5 per
+MTok) and prompt size, the per-turn system-prompt cost is already small
+(~$0.0015/request just for the system prompt); the effective cost levers
+that remain are `CLAUDE_MAX_TOKENS` (output cap, already tuned to 220)
+and the prompt's own brevity instructions (which also shrink ElevenLabs'
+per-character TTS cost). If the prompt grows substantially past ~4096
+tokens in the future, revisit adding `system: [{type: "text", text:
+SYSTEM_PROMPT, cache_control: {type: "ephemeral"}}]` to `index.js`.
+
 ### Verified end-to-end (2026-07-13)
 
 ```
