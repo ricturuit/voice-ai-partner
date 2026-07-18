@@ -141,9 +141,9 @@ up manually.
 ### Swapping in a cloned ElevenLabs voice
 
 The voice is controlled by the `ELEVENLABS_VOICE_ID` environment variable
-on `ConversationFunction`, currently defaulting to ElevenLabs' premade
-"Sarah" voice (`EXAVITQu4vr4xnSDxMaL`), set via `context.elevenLabsVoiceId`
-in `cdk.json`.
+on `ConversationFunction`, set via `context.elevenLabsVoiceId` in
+`cdk.json`. Currently set to a custom cloned voice, `Y201dRQCtTaTTHKc6n6c`
+(2026-07-17).
 
 **Important (free-plan accounts):** the voice ID must already be owned by
 the account — check with:
@@ -177,6 +177,33 @@ also requires it to show up in the account's `/v1/voices` list):
 `ELEVENLABS_MODEL_ID` (default `eleven_multilingual_v2`, supports
 Japanese) are also plain environment variables on the same function if
 those need to change later.
+
+### Character persona / system prompt (2026-07-17)
+
+`ConversationFunction` sends Claude a `system` prompt loaded from
+`lambda/conversation/system-prompt.md`, controlling the character's
+persona, tone, and (importantly for a voice app) how short/conversational
+each reply should be — it explicitly tells Claude to treat the exchange
+as a back-and-forth (one short reply per turn, leave room for the user to
+continue) rather than writing a complete, self-contained answer every
+time.
+
+To change how the character speaks: edit `system-prompt.md` directly (it's
+plain text bundled with the Lambda code, not an env var — Lambda env vars
+share a 4KB total budget across all of them combined, too tight for a
+prompt this size) and redeploy:
+```
+cd infra
+npx cdk deploy InfraStack --require-approval never
+```
+
+On top of the prompt's own brevity instructions, `CLAUDE_MAX_TOKENS`
+(default `220`, set via `context.claudeMaxTokens` in `cdk.json`, same
+override pattern as the voice ID) hard-caps Claude's output length —
+this bounds both Claude API cost and ElevenLabs TTS cost (ElevenLabs
+bills per character synthesized) regardless of whether the prompt is
+followed exactly. Lower it further for shorter/cheaper replies, or raise
+it if replies are getting cut off mid-sentence.
 
 ### Verified end-to-end (2026-07-13)
 

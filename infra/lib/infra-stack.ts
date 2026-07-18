@@ -104,6 +104,13 @@ export class InfraStack extends cdk.Stack {
       (this.node.tryGetContext('elevenLabsVoiceId') as string | undefined) ??
       'EXAVITQu4vr4xnSDxMaL';
 
+    // Caps Claude's output tokens per reply — bounds both Claude API cost
+    // and ElevenLabs TTS cost (billed per character), on top of the
+    // brevity guidance already in system-prompt.md. Override with
+    // `-c claudeMaxTokens=<n>` or cdk.json's `context.claudeMaxTokens`.
+    const claudeMaxTokens =
+      (this.node.tryGetContext('claudeMaxTokens') as string | undefined) ?? '220';
+
     const conversationFn = new lambda.Function(this, 'ConversationFunction', {
       functionName: 'voice-ai-partner-conversation',
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -120,6 +127,7 @@ export class InfraStack extends cdk.Stack {
         ELEVENLABS_API_KEY_SECRET_ARN: elevenLabsApiKeySecret.secretArn,
         ELEVENLABS_VOICE_ID: elevenLabsVoiceId,
         CLAUDE_MODEL: 'claude-haiku-4-5-20251001',
+        CLAUDE_MAX_TOKENS: claudeMaxTokens,
         ELEVENLABS_MODEL_ID: 'eleven_multilingual_v2',
       },
     });

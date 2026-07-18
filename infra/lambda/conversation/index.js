@@ -11,6 +11,8 @@ const {
   GetSecretValueCommand,
 } = require("@aws-sdk/client-secrets-manager");
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 
 const ddbClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const s3Client = new S3Client({});
@@ -25,6 +27,16 @@ const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001";
 // that haven't been added to the account.
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "EXAVITQu4vr4xnSDxMaL";
 const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || "eleven_multilingual_v2";
+// Keeps replies short by construction — both to fit the character's
+// "necessary minimum per turn" conversational style (see system-prompt.md)
+// and to bound Claude output tokens + ElevenLabs TTS characters (both
+// billed per unit), rather than relying on the prompt alone to self-limit.
+const CLAUDE_MAX_TOKENS = parseInt(process.env.CLAUDE_MAX_TOKENS || "220", 10);
+// Character persona/style instructions, edited as a standalone file rather
+// than an env var (Lambda env vars share a 4KB total budget across all of
+// them, too tight for a prompt this size) — edit system-prompt.md and
+// redeploy to change how the character speaks.
+const SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, "system-prompt.md"), "utf8");
 const HISTORY_LIMIT = 20;
 const TTL_SECONDS = 6 * 60 * 60;
 const AUDIO_URL_EXPIRY_SECONDS = 3600;
@@ -97,7 +109,8 @@ exports.handler = async (event) => {
       },
       body: JSON.stringify({
         model: CLAUDE_MODEL,
-        max_tokens: 1024,
+        max_tokens: CLAUDE_MAX_TOKENS,
+        system: SYSTEM_PROMPT,
         messages: claudeMessages,
       }),
     });
