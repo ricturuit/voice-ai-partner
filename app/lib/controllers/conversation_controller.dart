@@ -61,12 +61,11 @@ class ConversationController extends ChangeNotifier {
   Completer<void>? _replayCompleter;
 
   // Keeps audioPlayer's AudioContext from being auto-suspended by the
-  // browser during the listening phase, where several seconds can pass
-  // with no touch interaction at all (the user is talking, not tapping).
-  // Only runs while isListening — turns started/ended by a direct tap
-  // (startListening/stopListeningAndSend) already re-unlock right there,
-  // so this specifically covers the auto silence-timeout path, where the
-  // eventual sendText() call is Timer-triggered, not gesture-linked, and
+  // browser during two windows where several seconds can pass with no
+  // touch interaction at all: the listening phase (the user is talking,
+  // not tapping) and, separately, the isSending wait for the Claude+
+  // ElevenLabs round trip (see sendText() and _sendingKeepAliveInterval
+  // below) — both end with a non-gesture-linked automatic play() call that
   // can no longer resume an already-suspended context on its own.
   //
   // Kept deliberately infrequent: each ping plays real (if silent) audio
@@ -77,6 +76,14 @@ class ConversationController extends ChangeNotifier {
   // at maxSilenceThresholdSeconds (10s), so a ping every 10s still covers
   // that window without keeping audio activity continuously live.
   static const _audioKeepAliveInterval = Duration(seconds: 10);
+  // Separate, much tighter interval used only while sendText() is waiting
+  // on the Claude+ElevenLabs round trip (isSending == true). The mic is
+  // already closed by then (STT has stopped), so there's no accuracy
+  // tradeoff to justify spacing pings out — and the round trip itself
+  // (~5s in testing) is shorter than _audioKeepAliveInterval, meaning a
+  // timer freshly started at 10s could complete the entire wait without a
+  // single ping ever firing.
+  static const _sendingKeepAliveInterval = Duration(seconds: 3);
   Timer? _audioKeepAliveTimer;
 
   ConversationController() {
@@ -96,9 +103,9 @@ class ConversationController extends ChangeNotifier {
     super.dispose();
   }
 
-  void _startAudioKeepAlive() {
+  void _startAudioKeepAlive([Duration interval = _audioKeepAliveInterval]) {
     _audioKeepAliveTimer?.cancel();
-    _audioKeepAliveTimer = Timer.periodic(_audioKeepAliveInterval, (_) {
+    _audioKeepAliveTimer = Timer.periodic(interval, (_) {
       _unlockAudioPlayback();
     });
   }
@@ -395,6 +402,15 @@ class ConversationController extends ChangeNotifier {
     inputTextController.clear();
     notifyListeners();
 
+    // Covers the Claude+ElevenLabs round trip itself, not just the moment
+    // right before it — without this, nothing re-pings the AudioContext
+    // between the single unlock call above and the reply's actual play()
+    // call several seconds later, which was enough for the browser to
+    // re-suspend it in between and silently block the automatic playback.
+    // Uses the tighter _sendingKeepAliveInterval since the mic is already
+    // closed at this point (see its doc comment for why that's safe here).
+    _startAudioKeepAlive(_sendingKeepAliveInterval);
+
     String? audioUrlToPlay;
     try {
       final result = await _api.sendMessage(sessionId: sessionId, text: text);
@@ -405,6 +421,7 @@ class ConversationController extends ChangeNotifier {
     } on ConversationApiException catch (e) {
       messages.add(ChatMessage(role: ChatRole.error, text: e.message));
     } finally {
+      _stopAudioKeepAlive();
       // Done sending regardless of what happens with audio playback below —
       // playback must never keep the input controls disabled indefinitely.
       isSending = false;
