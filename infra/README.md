@@ -174,9 +174,19 @@ also requires it to show up in the account's `/v1/voices` list):
    also update `cdk.json`/the context).
 
 `CLAUDE_MODEL` (default `claude-haiku-4-5-20251001`) and
-`ELEVENLABS_MODEL_ID` (default `eleven_multilingual_v2`, supports
-Japanese) are also plain environment variables on the same function if
-those need to change later.
+`ELEVENLABS_MODEL_ID` (default `eleven_v3` as of 2026-07-18, previously
+`eleven_multilingual_v2`) are also plain environment variables on the
+same function if those need to change later.
+
+**Why `eleven_v3`**: switched from `eleven_multilingual_v2` because v2's
+delivery for this cloned voice didn't meet the bar (reported as
+"微妙" — off/unconvincing). Verified `eleven_v3` works with this
+account and voice ID via a direct API test before switching, and
+confirmed end-to-end (valid MP3 returned) after deploying. `eleven_v3`
+bills **1 credit per character** synthesized — this is exactly why
+keeping replies short (`CLAUDE_MAX_TOKENS`, the persona's own brevity
+rules — see below) directly controls ElevenLabs cost, not just Claude
+cost.
 
 ### Character persona / system prompt (2026-07-17)
 

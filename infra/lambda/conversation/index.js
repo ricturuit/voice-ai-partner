@@ -26,7 +26,7 @@ const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001";
 // account (GET /v1/voices) — the free plan rejects voice-library IDs
 // that haven't been added to the account.
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "EXAVITQu4vr4xnSDxMaL";
-const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || "eleven_multilingual_v2";
+const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || "eleven_v3";
 // Keeps replies short by construction — both to fit the character's
 // "necessary minimum per turn" conversational style (see system-prompt.md)
 // and to bound Claude output tokens + ElevenLabs TTS characters (both

@@ -128,7 +128,7 @@ export class InfraStack extends cdk.Stack {
         ELEVENLABS_VOICE_ID: elevenLabsVoiceId,
         CLAUDE_MODEL: 'claude-haiku-4-5-20251001',
         CLAUDE_MAX_TOKENS: claudeMaxTokens,
-        ELEVENLABS_MODEL_ID: 'eleven_multilingual_v2',
+        ELEVENLABS_MODEL_ID: 'eleven_v3',
       },
     });
 
