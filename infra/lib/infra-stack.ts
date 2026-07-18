@@ -111,6 +111,15 @@ export class InfraStack extends cdk.Stack {
     const claudeMaxTokens =
       (this.node.tryGetContext('claudeMaxTokens') as string | undefined) ?? '220';
 
+    // eleven_v3's stability/similarity_boost — see index.js comment for
+    // why these exist (v3's expressiveness showed up as unwanted mid-reply
+    // tone swings in testing). Override with `-c elevenLabsStability=<n>` /
+    // `-c elevenLabsSimilarityBoost=<n>` or cdk.json context.
+    const elevenLabsStability =
+      (this.node.tryGetContext('elevenLabsStability') as string | undefined) ?? '0.6';
+    const elevenLabsSimilarityBoost =
+      (this.node.tryGetContext('elevenLabsSimilarityBoost') as string | undefined) ?? '0.8';
+
     const conversationFn = new lambda.Function(this, 'ConversationFunction', {
       functionName: 'voice-ai-partner-conversation',
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -129,6 +138,8 @@ export class InfraStack extends cdk.Stack {
         CLAUDE_MODEL: 'claude-haiku-4-5-20251001',
         CLAUDE_MAX_TOKENS: claudeMaxTokens,
         ELEVENLABS_MODEL_ID: 'eleven_v3',
+        ELEVENLABS_STABILITY: elevenLabsStability,
+        ELEVENLABS_SIMILARITY_BOOST: elevenLabsSimilarityBoost,
       },
     });
 

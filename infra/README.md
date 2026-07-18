@@ -188,6 +188,39 @@ keeping replies short (`CLAUDE_MAX_TOKENS`, the persona's own brevity
 rules — see below) directly controls ElevenLabs cost, not just Claude
 cost.
 
+### `eleven_v3` follow-up fixes (2026-07-18)
+
+Real-device feedback after the `eleven_v3` switch surfaced three more
+issues, all fixed in the same round:
+
+**Technical-term mispronunciation (AWS, S3, ...):** ElevenLabs (like most
+TTS engines) tends to misread English acronyms embedded in Japanese text
+— spelling them out letter-by-letter incorrectly instead of using the
+natural katakana reading. Added `TTS_PRONUNCIATION_OVERRIDES` in
+`index.js` — a small dictionary (`AWS`→`エーダブリューエス`,
+`S3`→`エススリー`, etc.) applied via word-boundary regex **only to the
+text sent to ElevenLabs**, never to the text returned to the client,
+shown in chat, or stored in DynamoDB — so the visible transcript is
+unaffected. Extend the dictionary in `index.js` as more mispronounced
+terms come up in testing.
+
+**Unwanted mid-reply tone/energy swings:** `eleven_v3`'s greater
+expressiveness (vs. `eleven_multilingual_v2`) showed up as occasional
+sudden intonation changes. Added an explicit `voice_settings` object to
+the ElevenLabs request — `stability` (default `0.6`, env
+`ELEVENLABS_STABILITY`, CDK context `elevenLabsStability`) and
+`similarity_boost` (default `0.8`, env `ELEVENLABS_SIMILARITY_BOOST`,
+context `elevenLabsSimilarityBoost`). Higher `stability` trades away some
+expressiveness for more consistent delivery; **0.6 is a starting point
+pending real-device listening feedback**, not a tuned final value —
+adjust via `-c elevenLabsStability=<0-1>` and redeploy, no code change
+needed.
+
+Verified via direct API calls before deploying: `voice_settings` with
+numeric `stability`/`similarity_boost` returns `200` on `eleven_v3`
+with this voice (a string enum like `"natural"` was tried first and
+correctly rejected with `422`, confirming the API expects a float here).
+
 ### Character persona / system prompt (2026-07-17)
 
 `ConversationFunction` sends Claude a `system` prompt loaded from

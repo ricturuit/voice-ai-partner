@@ -27,6 +27,14 @@ const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001";
 // that haven't been added to the account.
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "EXAVITQu4vr4xnSDxMaL";
 const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || "eleven_v3";
+// eleven_v3 is more expressive than v2 by design, which showed up in testing
+// as occasional unwanted mid-reply swings in tone/energy. Raising stability
+// (0-1, higher = more consistent/less varied delivery) trades away some of
+// that expressiveness for fewer erratic jumps. Starting point pending
+// real-device listening feedback — adjust ELEVENLABS_STABILITY without a
+// code change if it needs tuning further.
+const ELEVENLABS_STABILITY = parseFloat(process.env.ELEVENLABS_STABILITY || "0.6");
+const ELEVENLABS_SIMILARITY_BOOST = parseFloat(process.env.ELEVENLABS_SIMILARITY_BOOST || "0.8");
 // Keeps replies short by construction — both to fit the character's
 // "necessary minimum per turn" conversational style (see system-prompt.md)
 // and to bound Claude output tokens + ElevenLabs TTS characters (both
@@ -37,6 +45,34 @@ const CLAUDE_MAX_TOKENS = parseInt(process.env.CLAUDE_MAX_TOKENS || "220", 10);
 // them, too tight for a prompt this size) — edit system-prompt.md and
 // redeploy to change how the character speaks.
 const SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, "system-prompt.md"), "utf8");
+// ElevenLabs (and TTS engines generally) frequently misreads English
+// acronyms embedded in Japanese text — spelling them out letter-by-letter
+// incorrectly rather than using the natural katakana reading. This map is
+// applied ONLY to the text sent for speech synthesis, never to the text
+// returned to the client, shown in chat, or stored in DynamoDB history —
+// so the transcript stays as Claude actually wrote it.
+const TTS_PRONUNCIATION_OVERRIDES = {
+  AWS: "エーダブリューエス",
+  S3: "エススリー",
+  EC2: "イーシーツー",
+  API: "エーピーアイ",
+  URL: "ユーアールエル",
+  SDK: "エスディーケー",
+  CDK: "シーディーケー",
+  HTTPS: "エイチティーティーピーエス",
+  HTTP: "エイチティーティーピー",
+  JSON: "ジェイソン",
+  CLI: "シーエルアイ",
+};
+
+function toTtsText(text) {
+  let result = text;
+  for (const [term, reading] of Object.entries(TTS_PRONUNCIATION_OVERRIDES)) {
+    result = result.replace(new RegExp(`\\b${term}\\b`, "g"), reading);
+  }
+  return result;
+}
+
 const HISTORY_LIMIT = 20;
 const TTL_SECONDS = 6 * 60 * 60;
 const AUDIO_URL_EXPIRY_SECONDS = 3600;
@@ -144,8 +180,12 @@ exports.handler = async (event) => {
           accept: "audio/mpeg",
         },
         body: JSON.stringify({
-          text: replyText,
+          text: toTtsText(replyText),
           model_id: ELEVENLABS_MODEL_ID,
+          voice_settings: {
+            stability: ELEVENLABS_STABILITY,
+            similarity_boost: ELEVENLABS_SIMILARITY_BOOST,
+          },
         }),
       },
     );

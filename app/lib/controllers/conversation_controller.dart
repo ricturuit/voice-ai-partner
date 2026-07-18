@@ -156,8 +156,16 @@ class ConversationController extends ChangeNotifier {
   Future<void> stopListeningAndSend() async {
     _silenceTimer?.cancel();
     _stopAudioKeepAlive();
-    final pendingText = inputTextController.text.trim();
+    // speech_to_text's stop() triggers one more *final* recognition result
+    // that lands asynchronously via onResult — reading the text before
+    // calling stop() (the previous bug here) or immediately after it can
+    // both race ahead of that final result, silently dropping whatever the
+    // user said in the last moment before tapping "finish". Stop first,
+    // then give the trailing result a brief window to land before reading
+    // the text for real.
     await _speech.stop();
+    await Future.delayed(const Duration(milliseconds: 400));
+    final pendingText = inputTextController.text.trim();
     isListening = false;
     silenceCountdown = null;
     notifyListeners();
@@ -196,14 +204,16 @@ class ConversationController extends ChangeNotifier {
     // Invoked before any other await, so the underlying play() call still
     // rides on the same user-gesture callstack as the tap, unlocking
     // `audioPlayer`'s AudioContext for later programmatic (non-gesture)
-    // playback of the reply audio. Must be awaited to full completion (not
-    // fire-and-forget) — audioplayers_web mutates shared player/source state
-    // (recreateNode, AudioContext.resume, ...) as part of play(), and a
-    // still-in-flight unlock call left running concurrently with the real
-    // reply's play() call races to mutate that same state, sometimes
-    // leaving the silent clip's <audio> element in place instead of the
-    // reply's (audio indicator active, but nothing audible).
-    await _unlockAudioPlayback();
+    // playback of the reply audio. Deliberately NOT awaited here — awaiting
+    // it delayed _speech.listen() below by however long the silent clip's
+    // play() took to resolve, which showed up as a perceptible lag between
+    // tapping the mic and speech actually being captured (early words lost).
+    // The race this used to guard against (this call's play() overlapping
+    // the real reply's later play() on the same AudioPlayer) isn't a risk
+    // here: sendText() performs its own awaited unlock call immediately
+    // before the API request, which is what actually runs close in time to
+    // the real reply's playback — see the comment there.
+    _unlockAudioPlayback();
     // Keeps re-pinging audioPlayer's AudioContext for as long as listening
     // continues, so a long pause before speech is detected (or before the
     // silence timeout fires) doesn't let it idle-suspend with no gesture
@@ -309,8 +319,11 @@ class ConversationController extends ChangeNotifier {
   }
 
   Future<void> _handleSilenceTimeout() async {
-    final text = inputTextController.text.trim();
+    // Same ordering fix as stopListeningAndSend(): read the text after
+    // stop() (and its trailing final result) rather than before.
     await _speech.stop();
+    await Future.delayed(const Duration(milliseconds: 400));
+    final text = inputTextController.text.trim();
     _stopAudioKeepAlive();
     isListening = false;
     notifyListeners();
