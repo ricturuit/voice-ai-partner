@@ -19,6 +19,7 @@ class Config:
     work_dir: str = field(default_factory=lambda: os.environ.get("WORK_DIR", "./work"))
     min_bitrate_kbps: int = field(default_factory=lambda: int(os.environ.get("MIN_BITRATE_KBPS", "96")))
     min_sample_rate_hz: int = field(default_factory=lambda: int(os.environ.get("MIN_SAMPLE_RATE_HZ", "32000")))
+    worker_concurrency: int = field(default_factory=lambda: int(os.environ.get("WORKER_CONCURRENCY", "1")))
 
 
 config = Config()

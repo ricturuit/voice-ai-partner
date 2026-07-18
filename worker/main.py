@@ -1,4 +1,5 @@
 import logging
+import multiprocessing
 import shutil
 from pathlib import Path
 
@@ -12,7 +13,10 @@ import storage_client
 import transcribe
 from config import config
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(processName)s] %(levelname)s %(message)s",
+)
 log = logging.getLogger("worker")
 
 
@@ -101,5 +105,21 @@ def main():
             queue_client.delete_job(receipt_handle)
 
 
+def run():
+    if config.worker_concurrency <= 1:
+        main()
+        return
+
+    log.info("starting %d worker processes", config.worker_concurrency)
+    processes = [
+        multiprocessing.Process(target=main, name=f"worker-{i + 1}")
+        for i in range(config.worker_concurrency)
+    ]
+    for p in processes:
+        p.start()
+    for p in processes:
+        p.join()
+
+
 if __name__ == "__main__":
-    main()
+    run()
