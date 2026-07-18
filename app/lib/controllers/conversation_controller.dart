@@ -68,7 +68,15 @@ class ConversationController extends ChangeNotifier {
   // so this specifically covers the auto silence-timeout path, where the
   // eventual sendText() call is Timer-triggered, not gesture-linked, and
   // can no longer resume an already-suspended context on its own.
-  static const _audioKeepAliveInterval = Duration(seconds: 3);
+  //
+  // Kept deliberately infrequent: each ping plays real (if silent) audio
+  // through the same AudioContext the browser's echo-cancellation/AGC
+  // pipeline watches, and pinging too often measurably hurt speech
+  // recognition accuracy for quiet speech ("ボソッと喋ると間違って入力
+  // される"). The silence threshold this is protecting against tops out
+  // at maxSilenceThresholdSeconds (10s), so a ping every 10s still covers
+  // that window without keeping audio activity continuously live.
+  static const _audioKeepAliveInterval = Duration(seconds: 10);
   Timer? _audioKeepAliveTimer;
 
   ConversationController() {
@@ -251,7 +259,32 @@ class ConversationController extends ChangeNotifier {
   // then silently stopped — the one-time-only version of this unlock left
   // the context unresumed for later turns. Manual replay always worked
   // throughout because tapping "音声を再生" is itself a fresh gesture.
-  Future<void> _unlockAudioPlayback() async {
+  // There are three independent call sites for this (the mic-tap in
+  // startListening(), the periodic keep-alive ping, and sendText()'s own
+  // awaited call before the API request) — without serialization, two of
+  // them can overlap (e.g. a keep-alive tick firing while sendText()'s
+  // call is still in flight). audioplayers_web's WrappedPlayer mutates
+  // shared, non-atomic state across await points inside play() (setUrl,
+  // recreateNode, ...), so overlapping calls on the same AudioPlayer can
+  // corrupt that state even when both calls are just replaying the same
+  // silent clip — this was the actual cause of a "stops auto-playing
+  // replies" regression once the periodic keep-alive made overlaps common
+  // instead of rare. Track the in-flight call and have concurrent callers
+  // await the same Future instead of starting a new overlapping one.
+  Future<void>? _unlockInFlight;
+
+  Future<void> _unlockAudioPlayback() {
+    final existing = _unlockInFlight;
+    if (existing != null) return existing;
+    final future = _doUnlockAudioPlayback();
+    _unlockInFlight = future;
+    future.whenComplete(() {
+      if (identical(_unlockInFlight, future)) _unlockInFlight = null;
+    });
+    return future;
+  }
+
+  Future<void> _doUnlockAudioPlayback() async {
     try {
       // No volume: parameter here — AudioPlayer.setVolume() persists on the
       // instance until explicitly changed again, so passing volume: 0.0
