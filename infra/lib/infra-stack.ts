@@ -106,10 +106,13 @@ export class InfraStack extends cdk.Stack {
 
     // Caps Claude's output tokens per reply — bounds both Claude API cost
     // and ElevenLabs TTS cost (billed per character), on top of the
-    // brevity guidance already in system-prompt.md. Override with
+    // brevity guidance already in system-prompt.md. Was 220, but real-device
+    // testing showed replies getting cut off mid-sentence at that cap —
+    // raised to 400 for headroom (index.js logs a warning whenever a reply
+    // still hits the cap, to help re-tune this if needed). Override with
     // `-c claudeMaxTokens=<n>` or cdk.json's `context.claudeMaxTokens`.
     const claudeMaxTokens =
-      (this.node.tryGetContext('claudeMaxTokens') as string | undefined) ?? '220';
+      (this.node.tryGetContext('claudeMaxTokens') as string | undefined) ?? '400';
 
     // eleven_v3's stability/similarity_boost — see index.js comment for
     // why these exist (v3's expressiveness showed up as unwanted mid-reply

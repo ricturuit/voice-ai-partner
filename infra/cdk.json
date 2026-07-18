@@ -18,7 +18,7 @@
   },
   "context": {
     "elevenLabsVoiceId": "Y201dRQCtTaTTHKc6n6c",
-    "claudeMaxTokens": "220",
+    "claudeMaxTokens": "400",
     "@aws-cdk-containers/ecs-service-extensions:enableDefaultLogDriver": true,
     "@aws-cdk/aws-apigateway:authorizerChangeDeploymentLogicalId": true,
     "@aws-cdk/aws-apigateway:disableCloudWatchRole": true,

@@ -39,7 +39,7 @@ const ELEVENLABS_SIMILARITY_BOOST = parseFloat(process.env.ELEVENLABS_SIMILARITY
 // "necessary minimum per turn" conversational style (see system-prompt.md)
 // and to bound Claude output tokens + ElevenLabs TTS characters (both
 // billed per unit), rather than relying on the prompt alone to self-limit.
-const CLAUDE_MAX_TOKENS = parseInt(process.env.CLAUDE_MAX_TOKENS || "220", 10);
+const CLAUDE_MAX_TOKENS = parseInt(process.env.CLAUDE_MAX_TOKENS || "400", 10);
 // Character persona/style instructions, edited as a standalone file rather
 // than an env var (Lambda env vars share a 4KB total budget across all of
 // them, too tight for a prompt this size) — edit system-prompt.md and
@@ -63,12 +63,23 @@ const TTS_PRONUNCIATION_OVERRIDES = {
   HTTP: "エイチティーティーピー",
   JSON: "ジェイソン",
   CLI: "シーエルアイ",
+  // Character's deliberately non-standard spelling of "先生" (see
+  // system-prompt.md) — written this way for the on-screen/text character,
+  // but should still be *spoken* the same as the standard word rather than
+  // however ElevenLabs happens to read the unusual spelling literally.
+  せんせえ: "せんせい",
 };
 
+// \b (word boundary) only recognizes ASCII word characters, so it never
+// matches around Japanese text — applying it to a Japanese term would
+// silently make that replacement never fire. Only wrap ASCII/digit terms
+// (acronyms) in \b; do a plain global replace for everything else.
 function toTtsText(text) {
   let result = text;
   for (const [term, reading] of Object.entries(TTS_PRONUNCIATION_OVERRIDES)) {
-    result = result.replace(new RegExp(`\\b${term}\\b`, "g"), reading);
+    const isAsciiTerm = /^[A-Za-z0-9]+$/.test(term);
+    const pattern = isAsciiTerm ? new RegExp(`\\b${term}\\b`, "g") : new RegExp(term, "g");
+    result = result.replace(pattern, reading);
   }
   return result;
 }
@@ -162,6 +173,16 @@ exports.handler = async (event) => {
       .map((block) => block.text)
       .join("\n")
       .trim();
+
+    if (claudeData.stop_reason === "max_tokens") {
+      // Claude hit CLAUDE_MAX_TOKENS before finishing the sentence — the
+      // reply below is truncated mid-thought. Logged (not treated as an
+      // error) so CLAUDE_MAX_TOKENS can be re-tuned if this shows up often.
+      console.warn(
+        "Claude reply truncated by max_tokens",
+        JSON.stringify({ maxTokens: CLAUDE_MAX_TOKENS, replyLength: replyText.length }),
+      );
+    }
 
     if (!replyText) {
       console.error("Claude API returned no text content", JSON.stringify(claudeData));

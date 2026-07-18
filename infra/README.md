@@ -241,7 +241,8 @@ npx cdk deploy InfraStack --require-approval never
 ```
 
 On top of the prompt's own brevity instructions, `CLAUDE_MAX_TOKENS`
-(default `220`, set via `context.claudeMaxTokens` in `cdk.json`, same
+(default `400` as of 2026-07-18, originally `220` — see the update below
+for why it was raised; set via `context.claudeMaxTokens` in `cdk.json`, same
 override pattern as the voice ID) hard-caps Claude's output length —
 this bounds both Claude API cost and ElevenLabs TTS cost (ElevenLabs
 bills per character synthesized) regardless of whether the prompt is
@@ -262,11 +263,37 @@ stays `0`) — so it wasn't implemented, to avoid adding code complexity
 for zero actual benefit. Given the current Haiku pricing ($1/$5 per
 MTok) and prompt size, the per-turn system-prompt cost is already small
 (~$0.0015/request just for the system prompt); the effective cost levers
-that remain are `CLAUDE_MAX_TOKENS` (output cap, already tuned to 220)
+that remain are `CLAUDE_MAX_TOKENS` (output cap, tuned to 220 at the time
+of writing, later raised to 400 — see the 2026-07-18 update below)
 and the prompt's own brevity instructions (which also shrink ElevenLabs'
 per-character TTS cost). If the prompt grows substantially past ~4096
 tokens in the future, revisit adding `system: [{type: "text", text:
 SYSTEM_PROMPT, cache_control: {type: "ephemeral"}}]` to `index.js`.
+
+## 修正: 発音矯正・返答の途中切れ(2026-07-18)
+
+実機フィードバックで報告された2件のバックエンド側の問題に対応。
+
+**「せんせえ」の読み上げがおかしい**: キャラクター設定上、ユーザー呼称は
+あえて標準的でない表記「せんせえ」(system-prompt.md参照)にしているが、
+ElevenLabsがその表記をそのまま字面通りに読み上げてしまい、「先生」と同じ
+発音にならなかった。既存の`TTS_PRONUNCIATION_OVERRIDES`(AWS/S3などの英語
+略語の読み修正と同じ仕組み)に`せんせえ → せんせい`を追加。表示・保存
+されるテキストは従来通り「せんせえ」のまま変えず、ElevenLabsへ送る音声
+合成用テキストのみ変換する。
+
+あわせて、既存の`toTtsText()`が全エントリに`\b`(単語境界)付きの正規表現を
+使っていたことに気づいた。`\b`はASCII文字の`\w`境界にしか反応しないため、
+日本語の項目(「せんせえ」)は前後を他の日本語文字に囲まれている限り
+`\b`が一切マッチせず、置換が静かに効かなくなる。ASCII項目(AWS/S3など)は
+従来通り`\b`付き、それ以外はプレーンな全置換に分岐するよう修正。
+
+**回答が途中で切れる**: `CLAUDE_MAX_TOKENS`(コスト抑制のため設定していた
+出力トークン数の上限)が`220`と小さすぎて、キャラクターが少し長めに話すと
+文の途中でカットされていた。`220`→`400`に引き上げ(`cdk.json`の
+`context.claudeMaxTokens`)。また、`claudeData.stop_reason === "max_tokens"`
+の場合にCloudWatch Logsへ警告ログを出すようにした(そのターンの応答文字数
+とあわせて記録)。今後また頻発するようならログを見て閾値を再調整できる。
 
 ### Verified end-to-end (2026-07-13)
 

@@ -266,18 +266,34 @@ class ConversationController extends ChangeNotifier {
   // then silently stopped — the one-time-only version of this unlock left
   // the context unresumed for later turns. Manual replay always worked
   // throughout because tapping "音声を再生" is itself a fresh gesture.
-  // There are three independent call sites for this (the mic-tap in
-  // startListening(), the periodic keep-alive ping, and sendText()'s own
-  // awaited call before the API request) — without serialization, two of
-  // them can overlap (e.g. a keep-alive tick firing while sendText()'s
-  // call is still in flight). audioplayers_web's WrappedPlayer mutates
-  // shared, non-atomic state across await points inside play() (setUrl,
-  // recreateNode, ...), so overlapping calls on the same AudioPlayer can
-  // corrupt that state even when both calls are just replaying the same
-  // silent clip — this was the actual cause of a "stops auto-playing
-  // replies" regression once the periodic keep-alive made overlaps common
-  // instead of rare. Track the in-flight call and have concurrent callers
-  // await the same Future instead of starting a new overlapping one.
+  // There are several independent call sites that invoke audioPlayer.play()
+  // (the mic-tap in startListening(), the periodic keep-alive pings during
+  // both listening and isSending, sendText()'s own awaited unlock call, and
+  // the real reply/manual-replay playback in _playAndAwaitCompletion) —
+  // audioplayers_web's WrappedPlayer mutates shared, non-atomic state
+  // across await points inside play() (setUrl, recreateNode, ...), so any
+  // two of these overlapping on the same AudioPlayer can corrupt that
+  // state, even when one side is just replaying the silent unlock clip.
+  // Once corrupted, playback stays broken for the rest of the session
+  // (including manual replay, since it shares the same AudioPlayer) — this
+  // was the actual cause of a "stops auto-playing and manual replay also
+  // stops working" regression: only the unlock calls were serialized
+  // against each other, leaving them free to overlap with the real
+  // playback call, which isn't itself an unlock call. All calls to
+  // audioPlayer.play() now funnel through _runOnAudioPlayer() below so at
+  // most one is ever in flight at a time, whichever call it came from.
+  Future<void> _audioOpQueue = Future.value();
+
+  Future<T> _runOnAudioPlayer<T>(Future<T> Function() action) {
+    final scheduled = _audioOpQueue.then((_) => action());
+    // Chain the *next* op off this one regardless of whether it succeeds —
+    // a failed play() (blocked autoplay, network error, ...) must not wedge
+    // every subsequent queued call behind a permanently-unresolved future.
+    // Errors still propagate to whoever awaits `scheduled` directly.
+    _audioOpQueue = scheduled.then((_) {}, onError: (_) {});
+    return scheduled;
+  }
+
   Future<void>? _unlockInFlight;
 
   Future<void> _unlockAudioPlayback() {
@@ -299,7 +315,7 @@ class ConversationController extends ChangeNotifier {
       // audioPlayer (including real replies and manual replays) that
       // doesn't also pass its own volume. The asset itself is already pure
       // silence, so there's nothing to gain from also zeroing the gain.
-      await audioPlayer.play(AssetSource('sounds/unlock_silent.wav'));
+      await _runOnAudioPlayer(() => audioPlayer.play(AssetSource('sounds/unlock_silent.wav')));
     } catch (e) {
       // Purely a best-effort unlock; never let it affect the actual flow.
       debugPrint('Audio unlock playback failed: $e');
@@ -476,7 +492,12 @@ class ConversationController extends ChangeNotifier {
       // again (not reset per-source), so relying on "whatever it happened
       // to be left at" is fragile (this is exactly how a past unlock-sound
       // tweak silently zeroed all future playback on this player).
-      await audioPlayer.play(UrlSource(url), volume: 1.0).timeout(const Duration(seconds: 10));
+      // Routed through _runOnAudioPlayer so this can never overlap an
+      // in-flight unlock ping on the same AudioPlayer — see the comment on
+      // _runOnAudioPlayer for why that overlap was corrupting playback.
+      await _runOnAudioPlayer(
+        () => audioPlayer.play(UrlSource(url), volume: 1.0),
+      ).timeout(const Duration(seconds: 10));
       await completer.future.timeout(const Duration(seconds: 30), onTimeout: () {});
     } catch (e) {
       // Always log so playback failures (blocked autoplay, CORS, expired

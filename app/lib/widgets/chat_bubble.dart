@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/chat_message.dart';
 
@@ -46,27 +47,63 @@ class ChatBubble extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(message.text, style: TextStyle(color: textColor)),
-            if (message.audioUrl != null && onReplayAudio != null)
+            if (!isError)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
-                child: InkWell(
-                  onTap: onReplayAudio,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.volume_up, size: 16, color: textColor.withValues(alpha: 0.8)),
-                      const SizedBox(width: 4),
-                      Text(
-                        '音声を再生',
-                        style: TextStyle(color: textColor.withValues(alpha: 0.8), fontSize: 12),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    InkWell(
+                      onTap: () => _copyToClipboard(context, message.text),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.copy, size: 14, color: textColor.withValues(alpha: 0.8)),
+                          const SizedBox(width: 4),
+                          Text(
+                            'コピー',
+                            style: TextStyle(color: textColor.withValues(alpha: 0.8), fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (message.audioUrl != null && onReplayAudio != null) ...[
+                      const SizedBox(width: 12),
+                      InkWell(
+                        onTap: onReplayAudio,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.volume_up,
+                              size: 16,
+                              color: textColor.withValues(alpha: 0.8),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '音声を再生',
+                              style: TextStyle(
+                                color: textColor.withValues(alpha: 0.8),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
-                  ),
+                  ],
                 ),
               ),
           ],
         ),
       ),
+    );
+  }
+
+  void _copyToClipboard(BuildContext context, String text) {
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('コピーしました'), duration: Duration(seconds: 1)),
     );
   }
 }
