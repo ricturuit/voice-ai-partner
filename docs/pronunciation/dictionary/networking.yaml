@@ -1,0 +1,14 @@
+# category: networking
+- id: http
+  term: HTTP
+  reading: エイチティーティーピー
+  category: networking
+  tags: [acronym]
+  aliases: []
+
+- id: https
+  term: HTTPS
+  reading: エイチティーティーピーエス
+  category: networking
+  tags: [acronym]
+  aliases: []

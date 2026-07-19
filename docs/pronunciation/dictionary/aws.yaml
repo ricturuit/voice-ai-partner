@@ -1,0 +1,29 @@
+# category: aws
+# このファイルのレコードは全て category: aws を持つこと(validateが検証する)。
+- id: aws
+  term: AWS
+  reading: エーダブリューエス
+  category: aws
+  tags: [acronym, brand_name]
+  aliases: ["Amazon Web Services"]
+
+- id: s3
+  term: S3
+  reading: エススリー
+  category: aws
+  tags: [acronym, number_unit]
+  aliases: []
+
+- id: ec2
+  term: EC2
+  reading: イーシーツー
+  category: aws
+  tags: [acronym, number_unit]
+  aliases: []
+
+- id: aws-cdk
+  term: CDK
+  reading: シーディーケー
+  category: aws
+  tags: [acronym, brand_name]
+  aliases: ["AWS CDK"]

@@ -1,0 +1,27 @@
+# タグ定義。
+#
+# タグはカテゴリを横断する属性を表す。1レコードは複数タグを持てる。
+# 新しいタグが必要な場合はここに追加してから dictionary/ 側で使用すること
+# (validate はここに定義のないタグをエラーにする)。
+tags:
+  - id: acronym
+    label: "頭字語"
+    description: "アルファベットの略語(例: AWS, API)。1文字ずつ読ませたい場合に付与する。"
+  - id: brand_name
+    label: "固有名詞・製品名"
+    description: "企業名・製品名・サービス名など、任意の読みに変えにくい固有名詞。"
+  - id: loanword
+    label: "外来語・カタカナ語"
+    description: "英語などから輸入された、カタカナで自然に読める語。"
+  - id: ambiguous_reading
+    label: "読みが複数存在する"
+    description: "文脈によって複数の読み方があり得る語(例: 頭字語読み vs 展開読み)。"
+  - id: number_unit
+    label: "数値・単位を含む"
+  - id: mixed_language
+    label: "日本語と英語が混在する語"
+  - id: app_specific
+    label: "アプリ固有(キャラクター設定等)"
+    description: >-
+      一般的な技術用語ではなく、本アプリ固有のキャラクター設定・世界観に
+      紐づく読み替え。custom カテゴリと組み合わせて使うことを想定。

@@ -1,0 +1,21 @@
+# category: programming
+- id: api
+  term: API
+  reading: エーピーアイ
+  category: programming
+  tags: [acronym]
+  aliases: []
+
+- id: sdk
+  term: SDK
+  reading: エスディーケー
+  category: programming
+  tags: [acronym]
+  aliases: []
+
+- id: json
+  term: JSON
+  reading: ジェイソン
+  category: programming
+  tags: [acronym, ambiguous_reading]
+  aliases: []
