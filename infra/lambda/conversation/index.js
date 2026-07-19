@@ -35,11 +35,13 @@ const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || "eleven_v3";
 // code change if it needs tuning further.
 const ELEVENLABS_STABILITY = parseFloat(process.env.ELEVENLABS_STABILITY || "0.6");
 const ELEVENLABS_SIMILARITY_BOOST = parseFloat(process.env.ELEVENLABS_SIMILARITY_BOOST || "0.8");
-// Keeps replies short by construction — both to fit the character's
-// "necessary minimum per turn" conversational style (see system-prompt.md)
-// and to bound Claude output tokens + ElevenLabs TTS characters (both
-// billed per unit), rather than relying on the prompt alone to self-limit.
-const CLAUDE_MAX_TOKENS = parseInt(process.env.CLAUDE_MAX_TOKENS || "400", 10);
+// A previous, much lower value (400) was cutting off replies mid-sentence
+// whenever the character legitimately needed more room (e.g. a search
+// result). Reply length/brevity is controlled entirely by system-prompt.md's
+// "音声会話ルール" section now — this is a generous safety ceiling only
+// (bounds worst-case Claude/ElevenLabs cost and latency), not expected to be
+// hit in normal conversation.
+const CLAUDE_MAX_TOKENS = parseInt(process.env.CLAUDE_MAX_TOKENS || "4096", 10);
 // Character persona/style instructions, edited as a standalone file rather
 // than an env var (Lambda env vars share a 4KB total budget across all of
 // them, too tight for a prompt this size) — edit system-prompt.md and
@@ -83,8 +85,25 @@ const TTS_PATTERNS = Object.entries(PRONUNCIATION_LOOKUP)
     reading,
   }));
 
+// Strips URLs from the TTS-bound copy only — a spoken-out URL is
+// unintelligible, and the chat UI already shows the real link, so the
+// visible/returned replyText keeps it untouched (same "TTS-only" rule as
+// the pronunciation substitutions above). Runs before those substitutions
+// so a URL's path/query segments can't accidentally match a dictionary
+// term. See system-prompt.md's "URL(リンク)の扱い" — Claude is told to
+// lead into a URL with "→", which this also cleans up once the URL itself
+// is gone, and to only include a URL when the user actually asked for one.
+function stripUrlsForTts(text) {
+  return text
+    .replace(/[(（]\s*https?:\/\/[^\s)）]+\s*[)）]/g, "")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/→\s*$/gm, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
 function toTtsText(text) {
-  let result = text;
+  let result = stripUrlsForTts(text);
   for (const { pattern, reading } of TTS_PATTERNS) {
     result = result.replace(pattern, reading);
   }

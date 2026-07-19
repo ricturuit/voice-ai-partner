@@ -374,3 +374,42 @@ downloads a valid playable MP3 (verified via `file`: "MPEG ADTS, layer
 III, v1, 128 kbps, 44.1 kHz"). A follow-up message in the same session
 correctly referenced the earlier turn, confirming DynamoDB history
 round-trips through Claude as expected.
+
+## 修正: 回答待ちフィラー廃止・トークン上限撤廃・URLの扱い(2026-07-19)
+
+実機フィードバックで報告された3件に対応。
+
+**回答待ちの「うーんちょっと待ってね」フィラーを廃止**: 実際の返答が
+返ってきても自動再生されなくなる不具合の原因が、この一時フィラー音声の
+再生にあると判明した。フィラー再生は共有の `audioPlayer` の無音ループを
+一度止めてから本編再生と同じ経路(`_runOnAudioPlayer`)で再生し、終わったら
+`_ensureSilentLoopPlaying()` でループを再開する仕組みだったが、この
+再開自体がブラウザの自動再生ポリシーに阻まれるケースがあり、その後の
+本編再生まで巻き添えで自動再生されなくなっていたとみられる。
+`app/lib/controllers/conversation_controller.dart` から
+`_playThinkingFiller()`・関連フィールド(`_thinkingFillerDelay`・
+`_thinkingFillerAssets`・`_fillerPlaybackDone`・`_random`)・`sendText()`
+内のタイマー起動処理を丸ごと削除。未使用になった
+`assets/sounds/thinking_{1,2,3}.mp3` も `pubspec.yaml` の宣言ごと削除した。
+
+**`CLAUDE_MAX_TOKENS` を実質撤廃**: `220`→`400`と2回引き上げてもなお、
+特にウェブ検索を挟んだ返答が長くなる場面で文の途中が切れる報告が続いた。
+返答の長さ・簡潔さの制御はすでに`system-prompt.md`の「音声会話ルール」
+セクションが担っており、通常の会話でこの上限に触れることはまず無い
+はずだったため、`4096`まで引き上げてコスト・レイテンシの安全弁のみに
+役割を縮小した(`index.js`のデフォルト値・`infra-stack.ts`の
+`claudeMaxTokens`デフォルト・`cdk.json`の`context.claudeMaxTokens`の
+3箇所を同じ値に統一)。`stop_reason === "max_tokens"`時の警告ログは
+引き続き残しており、この上限に実際に触れる頻度が高いようなら再検討する。
+
+**URLは依頼があったときだけ提示、音声では読まない**: これまで
+`system-prompt.md`にURL提示に関する具体的な指示が無く、検索結果の
+リンクを聞かれても提示してくれないことがあった。「ウェブ検索の使い方」
+セクションに「URL(リンク)の扱い」を新設し、ユーザーが明示的に
+リンク・URL・出典を求めたときだけ、検索結果に実在するURLを1つだけ
+文末に単独で置く形で含めるよう指示した(URLを作り上げることは禁止)。
+あわせて`index.js`に`stripUrlsForTts()`を追加し、ElevenLabsへ送る
+TTS用テキストからは`https://`で始まるURL(および前後の丸括弧・末尾の
+「→」等の残骸)を機械的に除去するガードを入れた。表示・保存される
+テキストは従来通りURLを含んだまま変えない。「URLを読み上げない」という
+挙動をプロンプトの指示だけに頼らず、コード側で必ず保証する構成にした。

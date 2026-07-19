@@ -64,9 +64,6 @@ flutter:
   assets:
     - assets/sounds/silence_cue.wav
     - assets/sounds/unlock_silent.wav
-    - assets/sounds/thinking_1.mp3
-    - assets/sounds/thinking_2.mp3
-    - assets/sounds/thinking_3.mp3
 
   # To add assets to your application, add an assets section, like this:
   # assets:

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/widgets.dart';
@@ -60,21 +59,6 @@ class ConversationController extends ChangeNotifier {
   // Lets the force-stop button unblock an in-progress reply playback wait
   // immediately (AudioPlayer.stop() does not itself fire onPlayerComplete).
   Completer<void>? _replayCompleter;
-
-  // If the Claude+ElevenLabs round trip is still pending after this long,
-  // play a short pre-recorded "thinking" filler so a slow reply doesn't
-  // just look like silence/dead air — see _playThinkingFiller().
-  static const _thinkingFillerDelay = Duration(seconds: 3);
-  static const _thinkingFillerAssets = [
-    'sounds/thinking_1.mp3',
-    'sounds/thinking_2.mp3',
-    'sounds/thinking_3.mp3',
-  ];
-  final _random = Random();
-  // Resolves once any in-flight filler playback has finished; sendText()
-  // awaits this before starting the real reply so the two never overlap.
-  // Defaults to an already-completed Future when no filler is playing.
-  Future<void> _fillerPlaybackDone = Future.value();
 
   ConversationController() {
     sessionId = const Uuid().v4();
@@ -374,48 +358,6 @@ class ConversationController extends ChangeNotifier {
     }
   }
 
-  // Plays one of a small set of pre-recorded (same voice, synthesized once
-  // and bundled as an app asset — no per-call Claude/ElevenLabs cost)
-  // "thinking" filler phrases when a reply is taking a while, so a slow
-  // Claude+ElevenLabs round trip reads as a natural conversational pause
-  // rather than the app looking stuck. Uses the shared audioPlayer (not a
-  // dedicated player) specifically because it's the one instance already
-  // kept "unlocked" via the continuous silent loop — see
-  // _ensureSilentLoopPlaying()'s doc comment — so this can play without
-  // needing its own fresh user gesture. Interrupts the loop the same way
-  // real reply playback does, then resumes it afterward.
-  Future<void> _playThinkingFiller() async {
-    final asset = _thinkingFillerAssets[_random.nextInt(_thinkingFillerAssets.length)];
-    _silentLoopActive = false;
-    final completer = Completer<void>();
-    _fillerPlaybackDone = completer.future;
-    final subscription = audioPlayer.onPlayerComplete.listen((_) {
-      if (!completer.isCompleted) completer.complete();
-    });
-    try {
-      await _runOnAudioPlayer(() async {
-        await audioPlayer.setReleaseMode(ReleaseMode.release);
-        await audioPlayer.play(AssetSource(asset), volume: 1.0);
-      });
-      await completer.future.timeout(const Duration(seconds: 5), onTimeout: () {});
-    } catch (e) {
-      // Purely a nice-to-have — never let a failure here affect the actual
-      // reply once it arrives.
-      debugPrint('Thinking filler playback failed: $e');
-    } finally {
-      // The `.timeout(...)` above bounds this function's own wait, but
-      // does NOT complete `completer` itself — only the onPlayerComplete
-      // listener does that. Without this, a filler that never actually
-      // started playing (blocked, or timed out inside _runOnAudioPlayer
-      // before play() ran) would leave `completer` — and therefore
-      // _fillerPlaybackDone, which sendText() awaits before playing the
-      // real reply — unresolved forever.
-      if (!completer.isCompleted) completer.complete();
-      await subscription.cancel();
-      unawaited(_ensureSilentLoopPlaying());
-    }
-  }
-
   Future<void> _handleSilenceTimeout() async {
     // Same ordering fix as stopListeningAndSend(): read the text after
     // stop() (and its trailing final result) rather than before.
@@ -468,14 +410,6 @@ class ConversationController extends ChangeNotifier {
     // a continuous loop rather than a one-shot ping.
     await _ensureSilentLoopPlaying();
 
-    // If the reply isn't back within _thinkingFillerDelay, play a short
-    // "thinking" filler so the wait reads as a natural pause rather than
-    // the app looking stuck. Cancelled the moment the real reply lands.
-    var apiSettled = false;
-    final thinkingTimer = Timer(_thinkingFillerDelay, () {
-      if (!apiSettled) unawaited(_playThinkingFiller());
-    });
-
     String? audioUrlToPlay;
     try {
       final result = await _api.sendMessage(sessionId: sessionId, text: text);
@@ -486,8 +420,6 @@ class ConversationController extends ChangeNotifier {
     } on ConversationApiException catch (e) {
       messages.add(ChatMessage(role: ChatRole.error, text: e.message));
     } finally {
-      apiSettled = true;
-      thinkingTimer.cancel();
       // Done sending regardless of what happens with audio playback below —
       // playback must never keep the input controls disabled indefinitely.
       isSending = false;
@@ -495,9 +427,6 @@ class ConversationController extends ChangeNotifier {
     }
 
     if (audioUrlToPlay != null) {
-      // Let any in-flight thinking-filler playback finish first so it never
-      // overlaps the real reply.
-      await _fillerPlaybackDone;
       await playReplyAudio(audioUrlToPlay);
     }
   }
