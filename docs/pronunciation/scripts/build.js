@@ -4,11 +4,22 @@
 const fs = require("fs");
 const path = require("path");
 const {
+  ROOT,
   GENERATED_DIR,
   loadTaxonomy,
   loadDictionaryEntries,
   validate,
 } = require("./lib/dictionary");
+
+// The actual consumer: infra/lambda/conversation/index.js. That Lambda's
+// CDK asset is a plain directory zip (`Code.fromAsset('lambda/conversation')`,
+// no bundler step), so unlike generated/ (gitignored build output) this copy
+// must be committed — it's what toTtsText() reads via a plain require() at
+// cold start. Keep in sync by running this script after editing dictionary/
+// and redeploying.
+const LAMBDA_LOOKUP_PATH = path.join(
+  ROOT, "..", "..", "infra", "lambda", "conversation", "pronunciation-lookup.json",
+);
 
 function main() {
   const taxonomy = loadTaxonomy();
@@ -65,6 +76,7 @@ function main() {
     path.join(GENERATED_DIR, "lookup.json"),
     JSON.stringify(lookupOut, null, 2) + "\n",
   );
+  fs.writeFileSync(LAMBDA_LOOKUP_PATH, JSON.stringify(lookupOut, null, 2) + "\n");
 
   const byCategory = new Map();
   for (const record of records) {
@@ -77,6 +89,7 @@ function main() {
   }
   console.log("  -> generated/dictionary.json");
   console.log("  -> generated/lookup.json");
+  console.log(`  -> ${path.relative(path.join(ROOT, "..", ".."), LAMBDA_LOOKUP_PATH)}`);
 }
 
 main();

@@ -201,8 +201,12 @@ natural katakana reading. Added `TTS_PRONUNCIATION_OVERRIDES` in
 `S3`→`エススリー`, etc.) applied via word-boundary regex **only to the
 text sent to ElevenLabs**, never to the text returned to the client,
 shown in chat, or stored in DynamoDB — so the visible transcript is
-unaffected. Extend the dictionary in `index.js` as more mispronounced
-terms come up in testing.
+unaffected.
+
+**Superseded 2026-07-19**: `TTS_PRONUNCIATION_OVERRIDES` was removed and
+replaced by `docs/pronunciation/`'s dictionary system — see "発音辞書
+システムとの接続(2026-07-19)" below for the current mechanism and how
+to add new mispronounced terms.
 
 **Unwanted mid-reply tone/energy swings:** `eleven_v3`'s greater
 expressiveness (vs. `eleven_multilingual_v2`) showed up as occasional
@@ -329,6 +333,34 @@ Lambda側でツール実行ループを組む必要はなく、`tools`を1つ追
 反復上限に達した場合)のケースはログに警告を出すだけで、再開処理は
 未実装(`max_uses: 3`の範囲でこの会話の使い方なら稀と想定)。頻発するようなら
 再検討する。
+
+## 発音辞書システムとの接続(2026-07-19)
+
+`docs/pronunciation/`(技術用語・キャラクター発音の一元管理システム)を
+`index.js`の`toTtsText()`に接続した。ハードコードされていた
+`TTS_PRONUNCIATION_OVERRIDES`(12件)は削除し、代わりに
+`infra/lambda/conversation/pronunciation-lookup.json`(198レコード・
+267エントリの辞書からビルドされた、git管理下のJSON)を`fs.readFileSync`+
+`JSON.parse`でコールドスタート時に1回読み込む。
+
+`Code.fromAsset('lambda/conversation')`はバンドラーを介さずディレクトリを
+そのままzipするため(`infra-stack.ts`参照)、`docs/pronunciation`側で
+`npm run build`を実行すると、gitignore対象の`generated/`に加えて
+このJSONファイルにも同じ内容がコピーされる仕組みにした
+(`docs/pronunciation/scripts/build.js`)。**辞書を更新したら
+`npm run build`→差分コミット→`cdk deploy InfraStack`の順で反映する
+必要があり、build しただけではデプロイ済みのLambdaには反映されない**
+(詳細は`docs/pronunciation/README.md`「更新フロー」・
+`docs/pronunciation/taxonomy/decision_log.md`参照)。
+
+あわせて`toTtsText()`自体も書き直した。旧実装は非ASCII termを正規表現の
+特殊文字としてエスケープせずに使っており、`.NET`や`CI/CD`のような記号
+入りtermで誤動作しうる懸念があったため、全termをエスケープしてから
+`RegExp`を組み立てるよう修正。境界判定も`\b`(ASCII専用、日本語には
+効かない)から先読み・後読み`(?<![A-Za-z0-9])...(?![A-Za-z0-9])`に
+統一し、`AI`が`AIRPORT`の内部で誤爆しないことを確認した。また
+複合語(`CI/CD`等)がその部分文字列(`CI`/`CD`)による先行置換で
+壊れないよう、termを文字数の降順でソートしてからマッチングする。
 
 ### Verified end-to-end (2026-07-13)
 

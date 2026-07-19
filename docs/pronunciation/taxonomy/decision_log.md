@@ -80,7 +80,10 @@ generated)の実装のみを行い、包括的な初版辞書の作成は別途 
   (冪等性・閾値等)を対象とした。実際の利用状況を見て今後拡充が
   必要か判断すること。
 
-### 今後の課題(index.js 連携時の注意点)
+### 今後の課題(index.js 連携時の注意点)【2026-07-19 接続完了・解消済み】
+
+(下記の懸念は "2026-07-19: index.js への接続" エントリで対応済み。
+記録として残す。)
 
 `infra/lambda/conversation/index.js` の `toTtsText()` は、`term` が
 `/^[A-Za-z0-9]+$/`(純粋な英数字)に一致しない場合、正規表現の特殊文字を
@@ -129,3 +132,46 @@ generated)の実装のみを行い、包括的な初版辞書の作成は別途 
 この制約を変更する理由はないと判断し、該当する新規レコード(IAM Identity
 Center、HTTP/2、HTTP/3、GPT-4.1 等)はスペースを除いた1つの連続文字列
 として登録した。
+
+## 2026-07-19: index.js への接続
+
+`generated/lookup.json` を `infra/lambda/conversation/index.js` の
+`toTtsText()` に接続した。旧来のハードコード `TTS_PRONUNCIATION_OVERRIDES`
+(12件、本辞書へ移行済みだったもの)は削除した。
+
+### 接続方式
+
+`infra/lambda/conversation` は `Code.fromAsset('lambda/conversation')` で
+ディレクトリをそのままzipするだけで、esbuild等のバンドラーを介さない
+(`infra/lib/infra-stack.ts` 参照)。そのため `generated/lookup.json`
+(git管理外のビルド成果物)をLambdaへ持ち込む手段として、`build.js` に
+`infra/lambda/conversation/pronunciation-lookup.json` への書き出しを
+追加し、このファイル自体をgit管理下に置いた(`system-prompt.md` が
+同ディレクトリに直接コミットされているのと同じパターン)。デプロイ時に
+ビルドを自動実行する仕組みは無いため、辞書を更新したら
+`npm run build` → 差分コミット → `cdk deploy` を人間が順に実行する
+運用とする(README.md「更新フロー」参照)。
+
+### toTtsText() の書き直し
+
+以前から記録していた「非ASCII termを正規表現の特殊文字としてエスケープ
+せずに使っている」問題(本ログの「今後の課題」参照)をこの接続を機に
+解消した。
+
+- 全termを `RegExp` 用にエスケープしてから `RegExp` を組み立てる。
+- 境界判定を `\b`(ASCII専用)から、直前直後がASCII英数字でないことを
+  要求する先読み・後読み `(?<![A-Za-z0-9])...(?![A-Za-z0-9])` に統一。
+  日本語termにも一律適用でき、`\b` が効かない問題も解消される。
+  `AI` が `AIRPORT` の内部で誤爆しないことをテストで確認した。
+- term を文字数の降順でソートしてからマッチングし、`CI/CD` のような
+  複合語がその部分文字列(`CI`・`CD`)による先行置換で壊れないように
+  した。
+
+### 大文字小文字の扱い
+
+`toTtsText()` の置換は大文字小文字を区別する(`g` フラグのみ、`i` は
+付けない)。`validate()` の重複チェックは大文字小文字を無視するが、
+これは「表記ゆれを検出する」ためであり、「実際の置換を大文字小文字
+無視にする」こととは別の話である。`Docker`/`docker` のような表記ゆれは
+(マスタ拡充タスクで意図した通り)aliasとして個別に登録し、置換自体は
+登録された表記と完全一致した場合のみ行う設計を維持した。

@@ -51,34 +51,41 @@ const SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, "system-prompt.md"), 
 // applied ONLY to the text sent for speech synthesis, never to the text
 // returned to the client, shown in chat, or stored in DynamoDB history —
 // so the transcript stays as Claude actually wrote it.
-const TTS_PRONUNCIATION_OVERRIDES = {
-  AWS: "エーダブリューエス",
-  S3: "エススリー",
-  EC2: "イーシーツー",
-  API: "エーピーアイ",
-  URL: "ユーアールエル",
-  SDK: "エスディーケー",
-  CDK: "シーディーケー",
-  HTTPS: "エイチティーティーピーエス",
-  HTTP: "エイチティーティーピー",
-  JSON: "ジェイソン",
-  CLI: "シーエルアイ",
-  // Character's deliberately non-standard spelling of "先生" (see
-  // system-prompt.md) — written this way for the on-screen/text character,
-  // but should still be *spoken* the same as the standard word rather than
-  // however ElevenLabs happens to read the unusual spelling literally.
-  せんせえ: "せんせい",
-};
+//
+// The map itself is generated from docs/pronunciation/ (the maintained
+// technical-term + character-pronunciation master, including the "せんせえ"
+// → "せんせい" override — see docs/pronunciation/README.md) and this file
+// (pronunciation-lookup.json) is a committed copy sitting next to index.js
+// so it's picked up by the plain directory zip `Code.fromAsset('lambda/
+// conversation')` uses (no bundler step in this stack). After editing
+// docs/pronunciation/dictionary/*.yaml, run `npm run build` from
+// docs/pronunciation/ to regenerate this file, then redeploy.
+const PRONUNCIATION_LOOKUP = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "pronunciation-lookup.json"), "utf8"),
+).lookup;
 
-// \b (word boundary) only recognizes ASCII word characters, so it never
-// matches around Japanese text — applying it to a Japanese term would
-// silently make that replacement never fire. Only wrap ASCII/digit terms
-// (acronyms) in \b; do a plain global replace for everything else.
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Precompiled once at module load (not per-request), longest term first so
+// a multi-word/compound term (e.g. "CI/CD") gets substituted before a
+// shorter term it contains (e.g. "CD") has a chance to corrupt the
+// substring. Each match is rejected if it immediately touches an ASCII
+// letter/digit on either side (so "AI" doesn't fire inside "AIRPORT") —
+// using a lookaround instead of \b since \b never matches around Japanese
+// characters, and this works uniformly for terms containing regex-special
+// characters (C++, .NET, GPT-4.1) once they're escaped.
+const TTS_PATTERNS = Object.entries(PRONUNCIATION_LOOKUP)
+  .sort(([a], [b]) => b.length - a.length)
+  .map(([term, reading]) => ({
+    pattern: new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(term)}(?![A-Za-z0-9])`, "g"),
+    reading,
+  }));
+
 function toTtsText(text) {
   let result = text;
-  for (const [term, reading] of Object.entries(TTS_PRONUNCIATION_OVERRIDES)) {
-    const isAsciiTerm = /^[A-Za-z0-9]+$/.test(term);
-    const pattern = isAsciiTerm ? new RegExp(`\\b${term}\\b`, "g") : new RegExp(term, "g");
+  for (const { pattern, reading } of TTS_PATTERNS) {
     result = result.replace(pattern, reading);
   }
   return result;
