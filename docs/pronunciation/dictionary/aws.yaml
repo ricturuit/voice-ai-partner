@@ -1,5 +1,11 @@
 # category: aws
 # このファイルのレコードは全て category: aws を持つこと(validateが検証する)。
+# AWSは音声会話AIにとって最重要カテゴリのため、実際の技術会話で頻出する
+# サービスを Compute / Storage / Database / Networking / Security /
+# Monitoring / Serverless / Containers / DevOps / AI / Analytics の
+# 観点で優先して登録する。
+
+# --- 既存データ(移行元) ---
 - id: aws
   term: AWS
   reading: エーダブリューエス
@@ -27,3 +33,302 @@
   category: aws
   tags: [acronym, brand_name]
   aliases: ["AWS CDK"]
+
+# --- Compute ---
+- id: lambda
+  term: Lambda
+  reading: ラムダ
+  category: aws
+  tags: [brand_name]
+  aliases: ["AWS Lambda"]
+
+# --- Storage ---
+- id: ebs
+  term: EBS
+  reading: イービーエス
+  category: aws
+  tags: [acronym]
+  aliases: ["Elastic Block Store"]
+
+- id: efs
+  term: EFS
+  reading: イーエフエス
+  category: aws
+  tags: [acronym]
+  aliases: ["Elastic File System"]
+
+# --- Database ---
+- id: rds
+  term: RDS
+  reading: アールディーエス
+  category: aws
+  tags: [acronym]
+  aliases: ["Relational Database Service"]
+
+- id: dynamodb
+  term: DynamoDB
+  reading: ダイナモディービー
+  category: aws
+  tags: [brand_name]
+  aliases: []
+
+- id: aurora
+  term: Aurora
+  reading: オーロラ
+  category: aws
+  tags: [brand_name]
+  aliases: ["Amazon Aurora"]
+
+- id: elasticache
+  term: ElastiCache
+  reading: エラスティキャッシュ
+  category: aws
+  tags: [brand_name]
+  aliases: ["Amazon ElastiCache"]
+
+- id: redshift
+  term: Redshift
+  reading: レッドシフト
+  category: aws
+  tags: [brand_name]
+  aliases: ["Amazon Redshift"]
+
+# --- Networking ---
+- id: vpc
+  term: VPC
+  reading: ブイピーシー
+  category: aws
+  tags: [acronym]
+  aliases: ["Virtual Private Cloud"]
+
+- id: route53
+  term: "Route 53"
+  reading: ルートゴジュウサン
+  category: aws
+  tags: [brand_name, number_unit]
+  aliases: ["Route53"]
+
+- id: cloudfront
+  term: CloudFront
+  reading: クラウドフロント
+  category: aws
+  tags: [brand_name]
+  aliases: []
+
+- id: elb
+  term: ELB
+  reading: イーエルビー
+  category: aws
+  tags: [acronym]
+  aliases: ["Elastic Load Balancing", "Elastic Load Balancer"]
+
+- id: alb
+  term: ALB
+  reading: エーエルビー
+  category: aws
+  tags: [acronym]
+  aliases: ["Application Load Balancer"]
+
+- id: direct-connect
+  term: "Direct Connect"
+  reading: ダイレクトコネクト
+  category: aws
+  tags: [brand_name]
+  aliases: ["AWS Direct Connect"]
+
+# --- Security ---
+- id: iam
+  term: IAM
+  reading: アイエーエム
+  category: aws
+  tags: [acronym]
+  aliases: []
+
+- id: kms
+  term: KMS
+  reading: ケーエムエス
+  category: aws
+  tags: [acronym]
+  aliases: ["Key Management Service"]
+
+- id: waf
+  term: WAF
+  reading: ワフ
+  category: aws
+  tags: [acronym]
+  aliases: ["AWS WAF"]
+
+- id: cognito
+  term: Cognito
+  reading: コグニート
+  category: aws
+  tags: [brand_name]
+  aliases: ["Amazon Cognito"]
+
+- id: secrets-manager
+  term: "Secrets Manager"
+  reading: シークレットマネージャー
+  category: aws
+  tags: [brand_name]
+  aliases: ["AWS Secrets Manager"]
+
+- id: guardduty
+  term: GuardDuty
+  reading: ガードデューティー
+  category: aws
+  tags: [brand_name]
+  aliases: ["Amazon GuardDuty"]
+
+# --- Monitoring ---
+- id: cloudwatch
+  term: CloudWatch
+  reading: クラウドウォッチ
+  category: aws
+  tags: [brand_name]
+  aliases: []
+
+- id: cloudtrail
+  term: CloudTrail
+  reading: クラウドトレイル
+  category: aws
+  tags: [brand_name]
+  aliases: []
+
+- id: aws-x-ray
+  term: X-Ray
+  reading: エックスレイ
+  category: aws
+  tags: [brand_name]
+  aliases: ["AWS X-Ray"]
+
+# --- Serverless ---
+- id: api-gateway
+  term: "API Gateway"
+  reading: エーピーアイゲートウェイ
+  category: aws
+  tags: [brand_name]
+  aliases: ["Amazon API Gateway"]
+
+- id: step-functions
+  term: "Step Functions"
+  reading: ステップファンクションズ
+  category: aws
+  tags: [brand_name]
+  aliases: ["AWS Step Functions"]
+
+# --- Containers ---
+- id: ecs
+  term: ECS
+  reading: イーシーエス
+  category: aws
+  tags: [acronym]
+  aliases: ["Elastic Container Service"]
+
+- id: eks
+  term: EKS
+  reading: イーケーエス
+  category: aws
+  tags: [acronym]
+  aliases: ["Elastic Kubernetes Service"]
+
+- id: fargate
+  term: Fargate
+  reading: ファーゲート
+  category: aws
+  tags: [brand_name]
+  aliases: ["AWS Fargate"]
+
+- id: ecr
+  term: ECR
+  reading: イーシーアール
+  category: aws
+  tags: [acronym]
+  aliases: ["Elastic Container Registry"]
+
+# --- DevOps ---
+- id: cloudformation
+  term: CloudFormation
+  reading: クラウドフォーメーション
+  category: aws
+  tags: [brand_name]
+  aliases: []
+
+- id: codepipeline
+  term: CodePipeline
+  reading: コードパイプライン
+  category: aws
+  tags: [brand_name]
+  aliases: ["AWS CodePipeline"]
+
+- id: codebuild
+  term: CodeBuild
+  reading: コードビルド
+  category: aws
+  tags: [brand_name]
+  aliases: ["AWS CodeBuild"]
+
+- id: codedeploy
+  term: CodeDeploy
+  reading: コードデプロイ
+  category: aws
+  tags: [brand_name]
+  aliases: ["AWS CodeDeploy"]
+
+# --- AI ---
+- id: bedrock
+  term: Bedrock
+  reading: ベッドロック
+  category: aws
+  tags: [brand_name]
+  aliases: ["Amazon Bedrock"]
+
+- id: sagemaker
+  term: SageMaker
+  reading: セージメーカー
+  category: aws
+  tags: [brand_name]
+  aliases: ["Amazon SageMaker"]
+
+- id: polly
+  term: Polly
+  reading: ポリー
+  category: aws
+  tags: [brand_name]
+  aliases: ["Amazon Polly"]
+
+- id: transcribe
+  term: Transcribe
+  reading: トランスクライブ
+  category: aws
+  tags: [brand_name]
+  aliases: ["Amazon Transcribe"]
+
+# --- Analytics ---
+- id: athena
+  term: Athena
+  reading: アテナ
+  category: aws
+  tags: [brand_name]
+  aliases: ["Amazon Athena"]
+
+- id: kinesis
+  term: Kinesis
+  reading: キネシス
+  category: aws
+  tags: [brand_name]
+  aliases: ["Amazon Kinesis"]
+
+- id: aws-glue
+  term: Glue
+  reading: グルー
+  category: aws
+  tags: [brand_name]
+  aliases: ["AWS Glue"]
+
+# --- Messaging ---
+- id: sqs
+  term: SQS
+  reading: エスキューエス
+  category: aws
+  tags: [acronym]
+  aliases: ["Simple Queue Service"]

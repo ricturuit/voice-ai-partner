@@ -1,0 +1,104 @@
+# category: ai_llm
+# このファイルのレコードは全て category: ai_llm を持つこと(validateが検証する)。
+- id: ai
+  term: AI
+  reading: エーアイ
+  category: ai_llm
+  tags: [acronym]
+  aliases: []
+
+- id: llm
+  term: LLM
+  reading: エルエルエム
+  category: ai_llm
+  tags: [acronym]
+  aliases: ["Large Language Model"]
+
+- id: gpt
+  term: GPT
+  reading: ジーピーティー
+  category: ai_llm
+  tags: [acronym, brand_name]
+  aliases: []
+
+- id: chatgpt
+  term: ChatGPT
+  reading: チャットジーピーティー
+  category: ai_llm
+  tags: [brand_name]
+  aliases: []
+
+- id: claude
+  term: Claude
+  reading: クロード
+  category: ai_llm
+  tags: [brand_name]
+  aliases: []
+
+- id: gemini
+  term: Gemini
+  reading: ジェミニ
+  category: ai_llm
+  tags: [brand_name]
+  aliases: []
+
+# RAG は「アールエージー」と1文字ずつ読む流儀もあるが、実際の技術会話では
+# 単語読みの「ラグ」が広く定着しているためこちらを採用。
+# 詳細は taxonomy/decision_log.md 参照。
+- id: rag
+  term: RAG
+  reading: ラグ
+  category: ai_llm
+  tags: [acronym, ambiguous_reading]
+  aliases: ["Retrieval Augmented Generation"]
+
+- id: mcp
+  term: MCP
+  reading: エムシーピー
+  category: ai_llm
+  tags: [acronym]
+  aliases: ["Model Context Protocol"]
+
+- id: anthropic
+  term: Anthropic
+  reading: アンスロピック
+  category: ai_llm
+  tags: [brand_name]
+  aliases: []
+
+- id: openai
+  term: OpenAI
+  reading: オープンエーアイ
+  category: ai_llm
+  tags: [brand_name]
+  aliases: []
+
+# 「ラマ」(動物名由来の口語読み) vs 「エルエルエムエー」(頭字語読み)で
+# 揺れがあるが、口語で広く使われる「ラマ」を採用。decision_log.md 参照。
+- id: llama
+  term: Llama
+  reading: ラマ
+  category: ai_llm
+  tags: [brand_name, ambiguous_reading]
+  aliases: ["LLaMA"]
+
+- id: agi
+  term: AGI
+  reading: エージーアイ
+  category: ai_llm
+  tags: [acronym]
+  aliases: ["Artificial General Intelligence"]
+
+- id: tts
+  term: TTS
+  reading: ティーティーエス
+  category: ai_llm
+  tags: [acronym]
+  aliases: ["Text to Speech", "Text-to-Speech"]
+
+- id: stt
+  term: STT
+  reading: エスティーティー
+  category: ai_llm
+  tags: [acronym]
+  aliases: ["Speech to Text", "Speech-to-Text"]

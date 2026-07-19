@@ -1,0 +1,71 @@
+# category: git_cicd
+# このファイルのレコードは全て category: git_cicd を持つこと(validateが検証する)。
+- id: git
+  term: Git
+  reading: ギット
+  category: git_cicd
+  tags: [brand_name]
+  aliases: []
+
+- id: github
+  term: GitHub
+  reading: ギットハブ
+  category: git_cicd
+  tags: [brand_name]
+  aliases: []
+
+- id: gitlab
+  term: GitLab
+  reading: ギットラボ
+  category: git_cicd
+  tags: [brand_name]
+  aliases: []
+
+- id: github-actions
+  term: "GitHub Actions"
+  reading: ギットハブアクションズ
+  category: git_cicd
+  tags: [brand_name]
+  aliases: []
+
+- id: jenkins
+  term: Jenkins
+  reading: ジェンキンス
+  category: git_cicd
+  tags: [brand_name]
+  aliases: []
+
+- id: ci
+  term: CI
+  reading: シーアイ
+  category: git_cicd
+  tags: [acronym]
+  aliases: []
+
+- id: cd
+  term: CD
+  reading: シーディー
+  category: git_cicd
+  tags: [acronym]
+  aliases: []
+
+- id: ci-cd
+  term: "CI/CD"
+  reading: シーアイシーディー
+  category: git_cicd
+  tags: [acronym]
+  aliases: []
+
+- id: pr
+  term: PR
+  reading: ピーアール
+  category: git_cicd
+  tags: [acronym]
+  aliases: []
+
+- id: pull-request
+  term: "Pull Request"
+  reading: プルリクエスト
+  category: git_cicd
+  tags: []
+  aliases: []

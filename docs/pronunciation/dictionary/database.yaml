@@ -1,0 +1,66 @@
+# category: database
+# このファイルのレコードは全て category: database を持つこと(validateが検証する)。
+- id: sql
+  term: SQL
+  reading: エスキューエル
+  category: database
+  tags: [acronym]
+  aliases: []
+
+- id: nosql
+  term: NoSQL
+  reading: ノーエスキューエル
+  category: database
+  tags: [acronym, mixed_language]
+  aliases: []
+
+- id: mysql
+  term: MySQL
+  reading: マイエスキューエル
+  category: database
+  tags: [brand_name]
+  aliases: []
+
+- id: postgresql
+  term: PostgreSQL
+  reading: ポストグレスキューエル
+  category: database
+  tags: [brand_name]
+  aliases: []
+
+# "Postgres" は "PostgreSQL" の略称だが読みが異なる(pronunciation_rules.md
+# §5)ため、別レコードとして登録する。
+- id: postgres
+  term: Postgres
+  reading: ポスグレ
+  category: database
+  tags: [brand_name, ambiguous_reading]
+  aliases: []
+
+- id: mongodb
+  term: MongoDB
+  reading: モンゴディービー
+  category: database
+  tags: [brand_name]
+  aliases: []
+
+- id: redis
+  term: Redis
+  reading: レディス
+  category: database
+  tags: [brand_name]
+  aliases: []
+
+- id: sqlite
+  term: SQLite
+  reading: エスキューライト
+  category: database
+  tags: [brand_name]
+  aliases: []
+
+- id: oracle-db
+  term: Oracle
+  reading: オラクル
+  category: database
+  tags: [brand_name]
+  aliases: []

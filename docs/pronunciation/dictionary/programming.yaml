@@ -1,4 +1,5 @@
 # category: programming
+# --- 既存データ(移行元) ---
 - id: api
   term: API
   reading: エーピーアイ
@@ -18,4 +19,91 @@
   reading: ジェイソン
   category: programming
   tags: [acronym, ambiguous_reading]
+  aliases: []
+
+# --- 言語 ---
+- id: python
+  term: Python
+  reading: パイソン
+  category: programming
+  tags: [brand_name]
+  aliases: []
+
+- id: javascript
+  term: JavaScript
+  reading: ジャバスクリプト
+  category: programming
+  tags: [brand_name]
+  aliases: []
+
+# "JS" は "JavaScript" の略記だが読みが異なる(1文字ずつ読む)ため
+# 別レコードとして登録する(pronunciation_rules.md §5)。
+- id: js
+  term: JS
+  reading: ジェイエス
+  category: programming
+  tags: [acronym]
+  aliases: []
+
+- id: typescript
+  term: TypeScript
+  reading: タイプスクリプト
+  category: programming
+  tags: [brand_name]
+  aliases: []
+
+- id: java
+  term: Java
+  reading: ジャバ
+  category: programming
+  tags: [brand_name]
+  aliases: []
+
+- id: ruby
+  term: Ruby
+  reading: ルビー
+  category: programming
+  tags: [brand_name]
+  aliases: []
+
+- id: golang
+  term: Golang
+  reading: ゴーラング
+  category: programming
+  tags: [brand_name]
+  aliases: []
+
+- id: rust
+  term: Rust
+  reading: ラスト
+  category: programming
+  tags: [brand_name]
+  aliases: []
+
+- id: php
+  term: PHP
+  reading: ピーエイチピー
+  category: programming
+  tags: [acronym]
+  aliases: []
+
+- id: swift
+  term: Swift
+  reading: スウィフト
+  category: programming
+  tags: [brand_name]
+  aliases: []
+
+- id: kotlin
+  term: Kotlin
+  reading: コトリン
+  category: programming
+  tags: [brand_name]
+  aliases: []
+
+- id: csharp
+  term: "C#"
+  reading: シーシャープ
+  category: programming
+  tags: [brand_name]
   aliases: []

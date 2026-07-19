@@ -1,0 +1,50 @@
+# category: library
+# このファイルのレコードは全て category: library を持つこと(validateが検証する)。
+- id: numpy
+  term: NumPy
+  reading: ナンパイ
+  category: library
+  tags: [brand_name]
+  aliases: []
+
+- id: pandas
+  term: Pandas
+  reading: パンダス
+  category: library
+  tags: [brand_name]
+  aliases: []
+
+- id: pytorch
+  term: PyTorch
+  reading: パイトーチ
+  category: library
+  tags: [brand_name]
+  aliases: []
+
+- id: tensorflow
+  term: TensorFlow
+  reading: テンサーフロー
+  category: library
+  tags: [brand_name]
+  aliases: []
+
+- id: scikit-learn
+  term: "scikit-learn"
+  reading: サイキットラーン
+  category: library
+  tags: [brand_name]
+  aliases: []
+
+- id: jquery
+  term: jQuery
+  reading: ジェイクエリー
+  category: library
+  tags: [brand_name]
+  aliases: []
+
+- id: axios
+  term: Axios
+  reading: アクシオス
+  category: library
+  tags: [brand_name]
+  aliases: []

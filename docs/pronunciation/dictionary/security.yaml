@@ -1,0 +1,59 @@
+# category: security
+# このファイルのレコードは全て category: security を持つこと(validateが検証する)。
+# JWT は「ジェイダブリューティー」(1文字ずつ)と口語の「ジョット」で
+# 揺れがあるが、より広く通用する1文字ずつ読みを採用。decision_log.md 参照。
+- id: jwt
+  term: JWT
+  reading: ジェイダブリューティー
+  category: security
+  tags: [acronym, ambiguous_reading]
+  aliases: []
+
+- id: ssl
+  term: SSL
+  reading: エスエスエル
+  category: security
+  tags: [acronym]
+  aliases: []
+
+- id: tls
+  term: TLS
+  reading: ティーエルエス
+  category: security
+  tags: [acronym]
+  aliases: []
+
+- id: oauth
+  term: OAuth
+  reading: オーオース
+  category: security
+  tags: [acronym, brand_name]
+  aliases: []
+
+- id: vpn
+  term: VPN
+  reading: ブイピーエヌ
+  category: security
+  tags: [acronym]
+  aliases: ["Virtual Private Network"]
+
+- id: xss
+  term: XSS
+  reading: エックスエスエス
+  category: security
+  tags: [acronym]
+  aliases: []
+
+- id: csrf
+  term: CSRF
+  reading: シーエスアールエフ
+  category: security
+  tags: [acronym]
+  aliases: []
+
+- id: ddos
+  term: DDoS
+  reading: ディードス
+  category: security
+  tags: [acronym]
+  aliases: []

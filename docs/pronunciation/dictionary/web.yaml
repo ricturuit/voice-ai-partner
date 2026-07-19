@@ -1,7 +1,65 @@
 # category: web
+# --- 既存データ(移行元) ---
 - id: url
   term: URL
   reading: ユーアールエル
   category: web
   tags: [acronym]
+  aliases: []
+
+# --- 追加 ---
+- id: html
+  term: HTML
+  reading: エイチティーエムエル
+  category: web
+  tags: [acronym]
+  aliases: []
+
+- id: css
+  term: CSS
+  reading: シーエスエス
+  category: web
+  tags: [acronym]
+  aliases: []
+
+- id: rest
+  term: REST
+  reading: レスト
+  category: web
+  tags: [acronym]
+  aliases: []
+
+- id: rest-api
+  term: "REST API"
+  reading: レストエーピーアイ
+  category: web
+  tags: [acronym, mixed_language]
+  aliases: []
+
+- id: dom
+  term: DOM
+  reading: ドム
+  category: web
+  tags: [acronym]
+  aliases: []
+
+- id: sns
+  term: SNS
+  reading: エスエヌエス
+  category: web
+  tags: [acronym]
+  aliases: []
+
+- id: pwa
+  term: PWA
+  reading: ピーダブリューエー
+  category: web
+  tags: [acronym]
+  aliases: []
+
+- id: graphql
+  term: GraphQL
+  reading: グラフキューエル
+  category: web
+  tags: [brand_name]
   aliases: []

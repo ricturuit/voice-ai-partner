@@ -1,0 +1,29 @@
+# category: machine_learning
+# このファイルのレコードは全て category: machine_learning を持つこと(validateが検証する)。
+- id: ml
+  term: ML
+  reading: エムエル
+  category: machine_learning
+  tags: [acronym]
+  aliases: []
+
+- id: nlp
+  term: NLP
+  reading: エヌエルピー
+  category: machine_learning
+  tags: [acronym]
+  aliases: []
+
+- id: cnn
+  term: CNN
+  reading: シーエヌエヌ
+  category: machine_learning
+  tags: [acronym]
+  aliases: []
+
+- id: gan
+  term: GAN
+  reading: ガン
+  category: machine_learning
+  tags: [acronym]
+  aliases: []

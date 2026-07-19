@@ -131,18 +131,32 @@ function validate(taxonomy, entries) {
       );
     }
 
+    // 同一レコード内の term/alias 同士(例: term: Docker, aliases: [docker]
+    // という大文字小文字違い)は衝突ではないため、まずレコード自身の中で
+    // ローカルに重複排除してから、他レコードとの衝突だけをグローバルな
+    // surfaceFormsSeen と照合する。グローバルへの登録はチェック後にまとめて
+    // 行う(このレコードの処理中に自分自身と誤って衝突判定しないため)。
     const surfaceForms = [
       ...(record.term ? [{ value: record.term, kind: "term" }] : []),
       ...((record.aliases || []).map((a) => ({ value: a, kind: "alias" }))),
     ];
+    const localForms = new Map(); // lowercased -> { value, kind }
     for (const { value, kind } of surfaceForms) {
       const key = value.toLowerCase();
+      if (!localForms.has(key)) {
+        localForms.set(key, { value, kind });
+      }
+    }
+    for (const [key, { value, kind }] of localForms) {
       const existing = surfaceFormsSeen.get(key);
       if (existing) {
         errors.push(
           `${where}: ${kind} "${value}" が ${existing.owner} の ${existing.kind} "${existing.value}" と衝突しています`,
         );
-      } else {
+      }
+    }
+    for (const [key, { value, kind }] of localForms) {
+      if (!surfaceFormsSeen.has(key)) {
         surfaceFormsSeen.set(key, { value, kind, owner: where });
       }
     }
