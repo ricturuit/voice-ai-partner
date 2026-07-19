@@ -284,8 +284,23 @@ class ConversationController extends ChangeNotifier {
   // most one is ever in flight at a time, whichever call it came from.
   Future<void> _audioOpQueue = Future.value();
 
+  // audioPlayer.play()'s returned Future is documented elsewhere in this
+  // file (see _playAndAwaitCompletion) to sometimes never resolve *or*
+  // reject at all when the browser silently blocks a non-gesture-linked
+  // play() call — this is a real, previously-observed behavior, not a
+  // hypothetical. Every op run through _runOnAudioPlayer is bounded by this
+  // timeout specifically so that case can't wedge the queue: without it, a
+  // single hung keep-alive ping (far more likely to hit a blocked-autoplay
+  // wall than a real user-gesture-adjacent call) would permanently block
+  // every operation queued after it — including the next real reply's
+  // playback, AND (via _doUnlockAudioPlayback awaiting this same queue)
+  // _unlockInFlight itself, which sendText() awaits as its very first line,
+  // meaning a single hung ping could eventually freeze sending new messages
+  // entirely, not just audio playback.
+  static const _audioOpTimeout = Duration(seconds: 10);
+
   Future<T> _runOnAudioPlayer<T>(Future<T> Function() action) {
-    final scheduled = _audioOpQueue.then((_) => action());
+    final scheduled = _audioOpQueue.then((_) => action().timeout(_audioOpTimeout));
     // Chain the *next* op off this one regardless of whether it succeeds —
     // a failed play() (blocked autoplay, network error, ...) must not wedge
     // every subsequent queued call behind a permanently-unresolved future.
@@ -484,8 +499,10 @@ class ConversationController extends ChangeNotifier {
     });
     try {
       // play() resolves once playback *starts*, not once it finishes, and
-      // some browsers leave it pending forever if autoplay is blocked — so
-      // bound it, then separately wait for the real completion event.
+      // some browsers leave it pending forever if autoplay is blocked —
+      // _runOnAudioPlayer already bounds it with _audioOpTimeout, so no
+      // separate timeout is needed here. Once it resolves (or times out),
+      // separately wait for the real completion event.
       //
       // volume is passed explicitly on every real playback call — it's a
       // setting that persists on the AudioPlayer instance until changed
@@ -495,9 +512,7 @@ class ConversationController extends ChangeNotifier {
       // Routed through _runOnAudioPlayer so this can never overlap an
       // in-flight unlock ping on the same AudioPlayer — see the comment on
       // _runOnAudioPlayer for why that overlap was corrupting playback.
-      await _runOnAudioPlayer(
-        () => audioPlayer.play(UrlSource(url), volume: 1.0),
-      ).timeout(const Duration(seconds: 10));
+      await _runOnAudioPlayer(() => audioPlayer.play(UrlSource(url), volume: 1.0));
       await completer.future.timeout(const Duration(seconds: 30), onTimeout: () {});
     } catch (e) {
       // Always log so playback failures (blocked autoplay, CORS, expired
