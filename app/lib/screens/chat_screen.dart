@@ -192,8 +192,8 @@ class _ChatScreenState extends State<ChatScreen> {
               enabled: !_controller.isSending,
               minLines: 1,
               maxLines: 4,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (text) => _controller.sendText(text),
+              keyboardType: TextInputType.multiline,
+              textInputAction: TextInputAction.newline,
               decoration: InputDecoration(
                 hintText: _controller.isListening ? '話しかけてください…' : 'メッセージを入力',
                 border: const OutlineInputBorder(

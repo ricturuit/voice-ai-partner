@@ -262,14 +262,16 @@ class ConversationController extends ChangeNotifier {
     try {
       await _runOnAudioPlayer(() async {
         await audioPlayer.setReleaseMode(ReleaseMode.loop);
-        // No volume: parameter here — AudioPlayer.setVolume() persists on
-        // the instance until explicitly changed again, so passing
-        // volume: 0.0 would silence every later play() call on this same
-        // shared audioPlayer (including real replies and manual replays)
-        // that doesn't also pass its own volume. The asset itself is
-        // already pure silence, so there's nothing to gain from also
-        // zeroing the gain.
-        await audioPlayer.play(AssetSource('sounds/unlock_silent.wav'));
+        // volume: 0.0 is safe here (unlike earlier in this file's history)
+        // because every real playback call below now passes its own
+        // explicit volume: 1.0, so nothing depends on inheriting whatever
+        // this loop last set. Zeroing the gain — on top of the asset
+        // already being silent — is a defensive measure against the
+        // browser's echo-cancellation/AGC pipeline treating this
+        // continuously-active output as "audio is playing" and suppressing
+        // quiet mic input while it runs, which is a plausible contributor
+        // to reports of voice input not registering while listening.
+        await audioPlayer.play(AssetSource('sounds/unlock_silent.wav'), volume: 0.0);
       });
       _silentLoopActive = true;
     } catch (e) {

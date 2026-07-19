@@ -159,6 +159,14 @@ exports.handler = async (event) => {
         max_tokens: CLAUDE_MAX_TOKENS,
         system: SYSTEM_PROMPT,
         messages: claudeMessages,
+        // Server-executed — Claude decides on its own whether a given turn
+        // needs a search (see system-prompt.md's guidance on when to search
+        // vs. answer directly) and, if so, runs it and folds the result
+        // into the same response with no extra round trip from this Lambda.
+        // Basic (non-dynamic-filtering) variant: CLAUDE_MODEL is Haiku
+        // 4.5, which isn't in the model list documented to support the
+        // newer dynamic-filtering tool versions.
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
       }),
     });
 
@@ -182,6 +190,12 @@ exports.handler = async (event) => {
         "Claude reply truncated by max_tokens",
         JSON.stringify({ maxTokens: CLAUDE_MAX_TOKENS, replyLength: replyText.length }),
       );
+    } else if (claudeData.stop_reason === "pause_turn") {
+      // A web_search turn ran long enough to hit the server-side search
+      // loop's own limit. Not resumed here (would need a second request
+      // echoing the paused assistant turn back) — logged so this can be
+      // revisited if it turns out to happen often with max_uses: 3.
+      console.warn("Claude search turn paused (pause_turn)", JSON.stringify({ replyLength: replyText.length }));
     }
 
     if (!replyText) {
