@@ -39,7 +39,14 @@
 
 - id: mongodb
   term: MongoDB
-  reading: モンゴディービー
+  reading: モンゴーディービー
+  category: database
+  tags: [brand_name]
+  aliases: []
+
+- id: mariadb
+  term: MariaDB
+  reading: マリアディービー
   category: database
   tags: [brand_name]
   aliases: []
@@ -61,6 +68,13 @@
 - id: oracle-db
   term: Oracle
   reading: オラクル
+  category: database
+  tags: [brand_name]
+  aliases: []
+
+- id: oracle-database
+  term: "Oracle Database"
+  reading: オラクルデータベース
   category: database
   tags: [brand_name]
   aliases: []

@@ -25,7 +25,7 @@
   reading: イーシーツー
   category: aws
   tags: [acronym, number_unit]
-  aliases: []
+  aliases: ["Amazon Elastic Compute Cloud"]
 
 - id: aws-cdk
   term: CDK
@@ -129,6 +129,13 @@
   tags: [acronym]
   aliases: ["Application Load Balancer"]
 
+- id: nlb
+  term: NLB
+  reading: エヌエルビー
+  category: aws
+  tags: [acronym]
+  aliases: ["Network Load Balancer"]
+
 - id: direct-connect
   term: "Direct Connect"
   reading: ダイレクトコネクト
@@ -139,9 +146,16 @@
 # --- Security ---
 - id: iam
   term: IAM
-  reading: アイエーエム
+  reading: アイアム
   category: aws
   tags: [acronym]
+  aliases: []
+
+- id: iam-identity-center
+  term: "IAM Identity Center"
+  reading: アイアムアイデンティティセンター
+  category: aws
+  tags: [brand_name]
   aliases: []
 
 - id: kms
@@ -171,6 +185,13 @@
   category: aws
   tags: [brand_name]
   aliases: ["AWS Secrets Manager"]
+
+- id: systems-manager
+  term: "Systems Manager"
+  reading: システムズマネージャー
+  category: aws
+  tags: [brand_name]
+  aliases: ["AWS Systems Manager"]
 
 - id: guardduty
   term: GuardDuty
@@ -215,6 +236,20 @@
   category: aws
   tags: [brand_name]
   aliases: ["AWS Step Functions"]
+
+- id: sam
+  term: SAM
+  reading: サム
+  category: aws
+  tags: [acronym]
+  aliases: ["AWS SAM"]
+
+- id: eventbridge
+  term: EventBridge
+  reading: イベントブリッジ
+  category: aws
+  tags: [brand_name]
+  aliases: ["Amazon EventBridge"]
 
 # --- Containers ---
 - id: ecs

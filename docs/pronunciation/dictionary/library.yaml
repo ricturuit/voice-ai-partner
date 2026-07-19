@@ -23,7 +23,7 @@
 
 - id: tensorflow
   term: TensorFlow
-  reading: テンサーフロー
+  reading: テンソルフロー
   category: library
   tags: [brand_name]
   aliases: []

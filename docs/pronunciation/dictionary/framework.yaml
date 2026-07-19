@@ -35,6 +35,13 @@
   tags: [brand_name]
   aliases: ["NodeJS"]
 
+- id: nuxt
+  term: Nuxt
+  reading: ナクスト
+  category: framework
+  tags: [brand_name]
+  aliases: ["Nuxt.js"]
+
 # 一般的な英単語 "Express" は誤マッチのリスクが高いため、term/aliases
 # ともに "Express.js" の形のみ登録する(registration_rules.md の
 # 用語選定方針)。
@@ -94,6 +101,13 @@
 - id: dotnet
   term: ".NET"
   reading: ドットネット
+  category: framework
+  tags: [brand_name]
+  aliases: []
+
+- id: asp-dotnet
+  term: "ASP.NET"
+  reading: エーエスピードットネット
   category: framework
   tags: [brand_name]
   aliases: []

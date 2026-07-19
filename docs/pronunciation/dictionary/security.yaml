@@ -1,12 +1,10 @@
 # category: security
 # このファイルのレコードは全て category: security を持つこと(validateが検証する)。
-# JWT は「ジェイダブリューティー」(1文字ずつ)と口語の「ジョット」で
-# 揺れがあるが、より広く通用する1文字ずつ読みを採用。decision_log.md 参照。
 - id: jwt
   term: JWT
   reading: ジェイダブリューティー
   category: security
-  tags: [acronym, ambiguous_reading]
+  tags: [acronym]
   aliases: []
 
 - id: ssl

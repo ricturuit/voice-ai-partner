@@ -14,6 +14,35 @@
   tags: [acronym]
   aliases: []
 
+# reading にスペースは含めない(taxonomy/pronunciation_rules.md §1)。
+- id: http2
+  term: "HTTP/2"
+  reading: エイチティーティーピーツー
+  category: networking
+  tags: [acronym, number_unit]
+  aliases: []
+
+- id: http3
+  term: "HTTP/3"
+  reading: エイチティーティーピースリー
+  category: networking
+  tags: [acronym, number_unit]
+  aliases: []
+
+- id: ipv4
+  term: IPv4
+  reading: アイピーブイフォー
+  category: networking
+  tags: [acronym, number_unit]
+  aliases: []
+
+- id: ipv6
+  term: IPv6
+  reading: アイピーブイシックス
+  category: networking
+  tags: [acronym, number_unit]
+  aliases: []
+
 # --- 追加 ---
 - id: dns
   term: DNS

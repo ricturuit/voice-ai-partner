@@ -28,6 +28,21 @@
   tags: [brand_name]
   aliases: []
 
+- id: gpt-4
+  term: GPT-4
+  reading: ジーピーティーフォー
+  category: ai_llm
+  tags: [brand_name, number_unit]
+  aliases: []
+
+# reading にスペースは含めない(taxonomy/pronunciation_rules.md §1)。
+- id: gpt-4-1
+  term: GPT-4.1
+  reading: ジーピーティーフォーポイントワン
+  category: ai_llm
+  tags: [brand_name, number_unit]
+  aliases: []
+
 - id: claude
   term: Claude
   reading: クロード
@@ -58,6 +73,27 @@
   category: ai_llm
   tags: [acronym]
   aliases: ["Model Context Protocol"]
+
+- id: langchain
+  term: LangChain
+  reading: ラングチェーン
+  category: ai_llm
+  tags: [brand_name]
+  aliases: []
+
+- id: langgraph
+  term: LangGraph
+  reading: ランググラフ
+  category: ai_llm
+  tags: [brand_name]
+  aliases: []
+
+- id: lora
+  term: LoRA
+  reading: ローラ
+  category: ai_llm
+  tags: [acronym]
+  aliases: []
 
 - id: anthropic
   term: Anthropic

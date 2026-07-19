@@ -21,6 +21,20 @@
   tags: [acronym, ambiguous_reading]
   aliases: []
 
+- id: yaml
+  term: YAML
+  reading: ヤムル
+  category: programming
+  tags: [acronym]
+  aliases: []
+
+- id: xml
+  term: XML
+  reading: エックスエムエル
+  category: programming
+  tags: [acronym]
+  aliases: []
+
 # --- 言語 ---
 - id: python
   term: Python
@@ -104,6 +118,20 @@
 - id: csharp
   term: "C#"
   reading: シーシャープ
+  category: programming
+  tags: [brand_name]
+  aliases: []
+
+- id: cpp
+  term: "C++"
+  reading: シープラスプラス
+  category: programming
+  tags: [brand_name]
+  aliases: []
+
+- id: fsharp
+  term: "F#"
+  reading: エフシャープ
   category: programming
   tags: [brand_name]
   aliases: []
