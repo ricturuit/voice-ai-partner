@@ -9,6 +9,11 @@ const TAXONOMY_DIR = path.join(ROOT, "taxonomy");
 const DICTIONARY_DIR = path.join(ROOT, "dictionary");
 const GENERATED_DIR = path.join(ROOT, "generated");
 
+// Current scope is term normalization only (correct kana reading). A future
+// `pronunciation`/`speech` field for accent/prosody/pause/TTS-engine params
+// is anticipated (see README.md "将来の発音レイヤー拡張方針") but not
+// implemented here — when that lands, add its name to this array; existing
+// records simply omit it and keep working unchanged.
 const RECORD_FIELDS = ["id", "term", "reading", "category", "tags", "aliases"];
 const REQUIRED_RECORD_FIELDS = ["id", "term", "reading", "category"];
 // Hiragana, katakana, and the prolonged sound mark only — see
