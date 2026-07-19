@@ -403,6 +403,14 @@ class ConversationController extends ChangeNotifier {
       // reply once it arrives.
       debugPrint('Thinking filler playback failed: $e');
     } finally {
+      // The `.timeout(...)` above bounds this function's own wait, but
+      // does NOT complete `completer` itself — only the onPlayerComplete
+      // listener does that. Without this, a filler that never actually
+      // started playing (blocked, or timed out inside _runOnAudioPlayer
+      // before play() ran) would leave `completer` — and therefore
+      // _fillerPlaybackDone, which sendText() awaits before playing the
+      // real reply — unresolved forever.
+      if (!completer.isCompleted) completer.complete();
       await subscription.cancel();
       unawaited(_ensureSilentLoopPlaying());
     }

@@ -189,7 +189,18 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: TextField(
               controller: _controller.inputTextController,
-              enabled: !_controller.isSending,
+              // Deliberately never disabled (not even while isSending) —
+              // matches the "type ahead" behavior already used for
+              // isPlayingReply (see the comment on that field), and sending
+              // is already blocked at the send button (controlsLocked
+              // below) and inside sendText() itself, so nothing depends on
+              // this field's enabled state for correctness. Flutter's web
+              // text-input plugin has a known issue where toggling
+              // TextField.enabled false→true doesn't always fully restore
+              // the underlying input's focusability, which read as "can't
+              // type from the 2nd message onward" — every send flipped
+              // enabled false then true again. Leaving it always enabled
+              // sidesteps that toggle entirely.
               minLines: 1,
               maxLines: 4,
               keyboardType: TextInputType.multiline,
