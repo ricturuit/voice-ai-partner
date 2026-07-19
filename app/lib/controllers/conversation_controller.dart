@@ -60,32 +60,6 @@ class ConversationController extends ChangeNotifier {
   // immediately (AudioPlayer.stop() does not itself fire onPlayerComplete).
   Completer<void>? _replayCompleter;
 
-  // Keeps audioPlayer's AudioContext from being auto-suspended by the
-  // browser during two windows where several seconds can pass with no
-  // touch interaction at all: the listening phase (the user is talking,
-  // not tapping) and, separately, the isSending wait for the Claude+
-  // ElevenLabs round trip (see sendText() and _sendingKeepAliveInterval
-  // below) — both end with a non-gesture-linked automatic play() call that
-  // can no longer resume an already-suspended context on its own.
-  //
-  // Kept deliberately infrequent: each ping plays real (if silent) audio
-  // through the same AudioContext the browser's echo-cancellation/AGC
-  // pipeline watches, and pinging too often measurably hurt speech
-  // recognition accuracy for quiet speech ("ボソッと喋ると間違って入力
-  // される"). The silence threshold this is protecting against tops out
-  // at maxSilenceThresholdSeconds (10s), so a ping every 10s still covers
-  // that window without keeping audio activity continuously live.
-  static const _audioKeepAliveInterval = Duration(seconds: 10);
-  // Separate, much tighter interval used only while sendText() is waiting
-  // on the Claude+ElevenLabs round trip (isSending == true). The mic is
-  // already closed by then (STT has stopped), so there's no accuracy
-  // tradeoff to justify spacing pings out — and the round trip itself
-  // (~5s in testing) is shorter than _audioKeepAliveInterval, meaning a
-  // timer freshly started at 10s could complete the entire wait without a
-  // single ping ever firing.
-  static const _sendingKeepAliveInterval = Duration(seconds: 3);
-  Timer? _audioKeepAliveTimer;
-
   ConversationController() {
     sessionId = const Uuid().v4();
     _initSpeech();
@@ -94,25 +68,12 @@ class ConversationController extends ChangeNotifier {
   @override
   void dispose() {
     _silenceTimer?.cancel();
-    _audioKeepAliveTimer?.cancel();
     inputTextController.dispose();
     audioPlayer.dispose();
     _cuePlayer.dispose();
     _speech.stop();
     _errorStreamController.close();
     super.dispose();
-  }
-
-  void _startAudioKeepAlive([Duration interval = _audioKeepAliveInterval]) {
-    _audioKeepAliveTimer?.cancel();
-    _audioKeepAliveTimer = Timer.periodic(interval, (_) {
-      _unlockAudioPlayback();
-    });
-  }
-
-  void _stopAudioKeepAlive() {
-    _audioKeepAliveTimer?.cancel();
-    _audioKeepAliveTimer = null;
   }
 
   void _emitError(String message) {
@@ -143,7 +104,6 @@ class ConversationController extends ChangeNotifier {
 
   void _handleSpeechError(SpeechRecognitionError error) {
     _silenceTimer?.cancel();
-    _stopAudioKeepAlive();
     isListening = false;
     silenceCountdown = null;
     notifyListeners();
@@ -152,7 +112,6 @@ class ConversationController extends ChangeNotifier {
 
   void _handleSpeechStatus(String status) {
     if (status == 'notListening' || status == 'done') {
-      _stopAudioKeepAlive();
       isListening = false;
       notifyListeners();
     }
@@ -170,7 +129,6 @@ class ConversationController extends ChangeNotifier {
 
   Future<void> stopListeningAndSend() async {
     _silenceTimer?.cancel();
-    _stopAudioKeepAlive();
     // speech_to_text's stop() triggers one more *final* recognition result
     // that lands asynchronously via onResult — reading the text before
     // calling stop() (the previous bug here) or immediately after it can
@@ -193,7 +151,6 @@ class ConversationController extends ChangeNotifier {
   /// whatever was recognized, going straight back to idle without sending.
   Future<void> cancelListening() async {
     _silenceTimer?.cancel();
-    _stopAudioKeepAlive();
     await _speech.stop();
     isListening = false;
     silenceCountdown = null;
@@ -217,23 +174,15 @@ class ConversationController extends ChangeNotifier {
     notifyListeners();
 
     // Invoked before any other await, so the underlying play() call still
-    // rides on the same user-gesture callstack as the tap, unlocking
-    // `audioPlayer`'s AudioContext for later programmatic (non-gesture)
-    // playback of the reply audio. Deliberately NOT awaited here — awaiting
-    // it delayed _speech.listen() below by however long the silent clip's
-    // play() took to resolve, which showed up as a perceptible lag between
-    // tapping the mic and speech actually being captured (early words lost).
-    // The race this used to guard against (this call's play() overlapping
-    // the real reply's later play() on the same AudioPlayer) isn't a risk
-    // here: sendText() performs its own awaited unlock call immediately
-    // before the API request, which is what actually runs close in time to
-    // the real reply's playback — see the comment there.
-    _unlockAudioPlayback();
-    // Keeps re-pinging audioPlayer's AudioContext for as long as listening
-    // continues, so a long pause before speech is detected (or before the
-    // silence timeout fires) doesn't let it idle-suspend with no gesture
-    // available later to resume it.
-    _startAudioKeepAlive();
+    // rides on the same user-gesture callstack as the tap — see
+    // _ensureSilentLoopPlaying()'s doc comment for why this starts a
+    // continuous loop rather than a one-shot ping. Deliberately NOT awaited
+    // here — awaiting it delayed _speech.listen() below by however long the
+    // call took to resolve, which showed up as a perceptible lag between
+    // tapping the mic and speech actually being captured (early words
+    // lost). sendText() performs its own awaited call before the API
+    // request, which is what actually matters for the reply's playback.
+    _ensureSilentLoopPlaying();
     _silenceGuardUntil = DateTime.now().add(_postListenGracePeriod);
     try {
       await _speech.listen(
@@ -249,39 +198,85 @@ class ConversationController extends ChangeNotifier {
       _playReadyCue();
     } catch (e) {
       debugPrint('Speech recognition failed to start: $e');
-      _stopAudioKeepAlive();
       isListening = false;
       notifyListeners();
       _emitError('音声入力を開始できませんでした: $e');
     }
   }
 
-  // Deliberately re-run on every gesture-linked call, not just once per
-  // session — mobile Safari (and other mobile browsers) can re-suspend an
-  // AudioContext after a period without touch interaction (e.g. the several
-  // seconds spent listening for speech while waiting for the silence
-  // timeout), and once suspended it stays that way for every later
-  // automatic playback until a fresh gesture resumes it again. This is why
-  // auto-play worked for the first turn or two after opening the app and
-  // then silently stopped — the one-time-only version of this unlock left
-  // the context unresumed for later turns. Manual replay always worked
-  // throughout because tapping "音声を再生" is itself a fresh gesture.
-  // There are several independent call sites that invoke audioPlayer.play()
-  // (the mic-tap in startListening(), the periodic keep-alive pings during
-  // both listening and isSending, sendText()'s own awaited unlock call, and
+  // Several rounds of a periodic "ping" keep-alive (re-playing a short
+  // silent clip every few seconds) all failed to reliably keep automatic
+  // reply playback working for slow-to-generate replies — real-device
+  // testing showed no autoplay *and* no browser audio-activity indicator at
+  // all once a reply took long enough, meaning the ping itself was being
+  // silently blocked, not just occasionally missed. This points at a
+  // stricter policy than "was audio recently playing": browsers appear to
+  // evaluate each individual play() call against how long it's been since
+  // an actual user gesture, and re-triggering a new discrete play() call
+  // from a Timer doesn't count as one — so no ping frequency can fix it.
+  //
+  // The fix is a different mechanism entirely: start ONE continuously
+  // looping (silent) playback the moment a real user gesture is available,
+  // and never issue another *new* play() call for the purpose of staying
+  // "unlocked" — a loop, once started, keeps playing indefinitely without
+  // needing fresh permission, since the browser sees it as the same
+  // ongoing playback session rather than a new autoplay attempt. When a
+  // real reply is ready, we swap this same AudioPlayer's source to the
+  // reply audio (interrupting the loop) via _runOnAudioPlayer, then resume
+  // the loop once that reply finishes, so the next (possibly slow) reply
+  // stays covered too. This is the standard trick web apps (chat/notifier
+  // UIs) use for exactly this kind of "must be able to make sound without
+  // a fresh click every time" requirement.
+  bool _silentLoopActive = false;
+  Future<void>? _silentLoopStarting;
+
+  Future<void> _ensureSilentLoopPlaying() {
+    if (_silentLoopActive) return Future.value();
+    final existing = _silentLoopStarting;
+    if (existing != null) return existing;
+    final future = _startSilentLoop();
+    _silentLoopStarting = future;
+    future.whenComplete(() {
+      if (identical(_silentLoopStarting, future)) _silentLoopStarting = null;
+    });
+    return future;
+  }
+
+  Future<void> _startSilentLoop() async {
+    try {
+      await _runOnAudioPlayer(() async {
+        await audioPlayer.setReleaseMode(ReleaseMode.loop);
+        // No volume: parameter here — AudioPlayer.setVolume() persists on
+        // the instance until explicitly changed again, so passing
+        // volume: 0.0 would silence every later play() call on this same
+        // shared audioPlayer (including real replies and manual replays)
+        // that doesn't also pass its own volume. The asset itself is
+        // already pure silence, so there's nothing to gain from also
+        // zeroing the gain.
+        await audioPlayer.play(AssetSource('sounds/unlock_silent.wav'));
+      });
+      _silentLoopActive = true;
+    } catch (e) {
+      // Purely a best-effort unlock; never let it affect the actual flow.
+      // Leave _silentLoopActive false so the next caller retries instead of
+      // assuming coverage that was never actually achieved.
+      debugPrint('Silent audio-unlock loop failed to start: $e');
+    }
+  }
+
+  // Several independent call sites invoke audioPlayer.play()/setReleaseMode
+  // (the mic-tap in startListening(), sendText()'s own awaited call, and
   // the real reply/manual-replay playback in _playAndAwaitCompletion) —
   // audioplayers_web's WrappedPlayer mutates shared, non-atomic state
   // across await points inside play() (setUrl, recreateNode, ...), so any
   // two of these overlapping on the same AudioPlayer can corrupt that
-  // state, even when one side is just replaying the silent unlock clip.
-  // Once corrupted, playback stays broken for the rest of the session
-  // (including manual replay, since it shares the same AudioPlayer) — this
-  // was the actual cause of a "stops auto-playing and manual replay also
-  // stops working" regression: only the unlock calls were serialized
-  // against each other, leaving them free to overlap with the real
-  // playback call, which isn't itself an unlock call. All calls to
-  // audioPlayer.play() now funnel through _runOnAudioPlayer() below so at
-  // most one is ever in flight at a time, whichever call it came from.
+  // state, even when one side is just the silent loop. Once corrupted,
+  // playback stays broken for the rest of the session (including manual
+  // replay, since it shares the same AudioPlayer) — this was the actual
+  // cause of a past "stops auto-playing and manual replay also stops
+  // working" regression. All calls now funnel through _runOnAudioPlayer()
+  // below so at most one is ever in flight at a time, whichever call it
+  // came from.
   Future<void> _audioOpQueue = Future.value();
 
   // audioPlayer.play()'s returned Future is documented elsewhere in this
@@ -290,13 +285,13 @@ class ConversationController extends ChangeNotifier {
   // play() call — this is a real, previously-observed behavior, not a
   // hypothetical. Every op run through _runOnAudioPlayer is bounded by this
   // timeout specifically so that case can't wedge the queue: without it, a
-  // single hung keep-alive ping (far more likely to hit a blocked-autoplay
-  // wall than a real user-gesture-adjacent call) would permanently block
-  // every operation queued after it — including the next real reply's
-  // playback, AND (via _doUnlockAudioPlayback awaiting this same queue)
-  // _unlockInFlight itself, which sendText() awaits as its very first line,
-  // meaning a single hung ping could eventually freeze sending new messages
-  // entirely, not just audio playback.
+  // single hung silent-loop start (far more likely to hit a blocked-
+  // autoplay wall than a real user-gesture-adjacent call) would
+  // permanently block every operation queued after it — including the next
+  // real reply's playback, AND (via _ensureSilentLoopPlaying awaiting this
+  // same queue) _silentLoopStarting itself, which sendText() awaits as its
+  // very first async step, meaning a single hung start could eventually
+  // freeze sending new messages entirely, not just audio playback.
   static const _audioOpTimeout = Duration(seconds: 10);
 
   Future<T> _runOnAudioPlayer<T>(Future<T> Function() action) {
@@ -307,34 +302,6 @@ class ConversationController extends ChangeNotifier {
     // Errors still propagate to whoever awaits `scheduled` directly.
     _audioOpQueue = scheduled.then((_) {}, onError: (_) {});
     return scheduled;
-  }
-
-  Future<void>? _unlockInFlight;
-
-  Future<void> _unlockAudioPlayback() {
-    final existing = _unlockInFlight;
-    if (existing != null) return existing;
-    final future = _doUnlockAudioPlayback();
-    _unlockInFlight = future;
-    future.whenComplete(() {
-      if (identical(_unlockInFlight, future)) _unlockInFlight = null;
-    });
-    return future;
-  }
-
-  Future<void> _doUnlockAudioPlayback() async {
-    try {
-      // No volume: parameter here — AudioPlayer.setVolume() persists on the
-      // instance until explicitly changed again, so passing volume: 0.0
-      // would silence every later play() call on this same shared
-      // audioPlayer (including real replies and manual replays) that
-      // doesn't also pass its own volume. The asset itself is already pure
-      // silence, so there's nothing to gain from also zeroing the gain.
-      await _runOnAudioPlayer(() => audioPlayer.play(AssetSource('sounds/unlock_silent.wav')));
-    } catch (e) {
-      // Purely a best-effort unlock; never let it affect the actual flow.
-      debugPrint('Audio unlock playback failed: $e');
-    }
   }
 
   void _handleSpeechResult(SpeechRecognitionResult result) {
@@ -395,7 +362,6 @@ class ConversationController extends ChangeNotifier {
     await _speech.stop();
     await Future.delayed(const Duration(milliseconds: 400));
     final text = inputTextController.text.trim();
-    _stopAudioKeepAlive();
     isListening = false;
     notifyListeners();
     if (text.isNotEmpty) {
@@ -411,36 +377,36 @@ class ConversationController extends ChangeNotifier {
     text = text.trim();
     if (text.isEmpty || isSending || isPlayingReply) return;
 
-    // Invoked before any other await — same reasoning as in startListening()
-    // (must be awaited to full completion, not fire-and-forget, to avoid
-    // racing with the reply's later play() call on the same AudioPlayer).
-    // Without this at all, a text-only send (never touching the mic button)
-    // never unlocks the shared AudioPlayer's AudioContext with a genuine
-    // user gesture, so the reply's automatic playback gets silently blocked
-    // by the browser's autoplay policy once the API round-trip (which can
-    // take several seconds) outlasts the click/Enter-key gesture.
-    await _unlockAudioPlayback();
-
-    _silenceTimer?.cancel();
-    silenceCountdown = null;
-    if (isListening) {
-      await _speech.stop();
-    }
-
-    messages.add(ChatMessage(role: ChatRole.user, text: text));
+    // isSending is set synchronously here, before any `await` — Dart runs
+    // an async function's body synchronously up to its first `await`, so
+    // this closes a race where a rapid double-tap on the send button (or
+    // hitting Enter twice) could both pass the isSending check above and
+    // send the same text twice. Previously isSending wasn't set until
+    // after the unlock call's `await` had already yielded control back to
+    // the event loop, leaving a real window for a second tap to slip
+    // through. Clearing the input and disabling the controls happen in the
+    // same synchronous block for the same reason.
+    final wasListening = isListening;
     isSending = true;
     isListening = false;
+    _silenceTimer?.cancel();
+    silenceCountdown = null;
+    messages.add(ChatMessage(role: ChatRole.user, text: text));
     inputTextController.clear();
     notifyListeners();
 
-    // Covers the Claude+ElevenLabs round trip itself, not just the moment
-    // right before it — without this, nothing re-pings the AudioContext
-    // between the single unlock call above and the reply's actual play()
-    // call several seconds later, which was enough for the browser to
-    // re-suspend it in between and silently block the automatic playback.
-    // Uses the tighter _sendingKeepAliveInterval since the mic is already
-    // closed at this point (see its doc comment for why that's safe here).
-    _startAudioKeepAlive(_sendingKeepAliveInterval);
+    if (wasListening) {
+      await _speech.stop();
+    }
+
+    // Without this, a text-only send (never touching the mic button) never
+    // starts the shared AudioPlayer's silent unlock loop with a genuine
+    // user gesture, so the reply's automatic playback gets silently
+    // blocked by the browser's autoplay policy once the API round-trip
+    // (which can take several seconds) outlasts the click/Enter-key
+    // gesture. See _ensureSilentLoopPlaying()'s doc comment for why this is
+    // a continuous loop rather than a one-shot ping.
+    await _ensureSilentLoopPlaying();
 
     String? audioUrlToPlay;
     try {
@@ -452,7 +418,6 @@ class ConversationController extends ChangeNotifier {
     } on ConversationApiException catch (e) {
       messages.add(ChatMessage(role: ChatRole.error, text: e.message));
     } finally {
-      _stopAudioKeepAlive();
       // Done sending regardless of what happens with audio playback below —
       // playback must never keep the input controls disabled indefinitely.
       isSending = false;
@@ -492,6 +457,12 @@ class ConversationController extends ChangeNotifier {
   }
 
   Future<void> _playAndAwaitCompletion(String url, {required bool isManualReplay}) async {
+    // About to interrupt the silent loop (if any) by swapping this
+    // AudioPlayer's source to the real reply — mark it inactive so a
+    // concurrent _ensureSilentLoopPlaying() caller doesn't wrongly think
+    // coverage still exists, and so it gets resumed (see finally below)
+    // rather than skipped as a no-op the next time it's needed.
+    _silentLoopActive = false;
     final completer = Completer<void>();
     _replayCompleter = completer;
     final subscription = audioPlayer.onPlayerComplete.listen((_) {
@@ -510,9 +481,15 @@ class ConversationController extends ChangeNotifier {
       // to be left at" is fragile (this is exactly how a past unlock-sound
       // tweak silently zeroed all future playback on this player).
       // Routed through _runOnAudioPlayer so this can never overlap an
-      // in-flight unlock ping on the same AudioPlayer — see the comment on
-      // _runOnAudioPlayer for why that overlap was corrupting playback.
-      await _runOnAudioPlayer(() => audioPlayer.play(UrlSource(url), volume: 1.0));
+      // in-flight silent-loop operation on the same AudioPlayer — see the
+      // comment on _runOnAudioPlayer for why that overlap was corrupting
+      // playback. ReleaseMode.release (the package default, set explicitly
+      // here since the silent loop leaves it on ReleaseMode.loop) so this
+      // plays once and stops rather than looping the reply audio.
+      await _runOnAudioPlayer(() async {
+        await audioPlayer.setReleaseMode(ReleaseMode.release);
+        await audioPlayer.play(UrlSource(url), volume: 1.0);
+      });
       await completer.future.timeout(const Duration(seconds: 30), onTimeout: () {});
     } catch (e) {
       // Always log so playback failures (blocked autoplay, CORS, expired
@@ -529,6 +506,11 @@ class ConversationController extends ChangeNotifier {
     } finally {
       await subscription.cancel();
       _replayCompleter = null;
+      // Resume the silent loop so a long wait before the *next* reply
+      // stays covered without needing a fresh user gesture. Not awaited —
+      // this is best-effort background upkeep, not something the caller
+      // needs to wait on.
+      unawaited(_ensureSilentLoopPlaying());
     }
   }
 
