@@ -64,7 +64,6 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: AppBar(
         title: const Text('音声AIパートナー'),
         actions: [
-          _buildSilenceThresholdMenu(),
           IconButton(
             tooltip: '音声会話モードに切り替え',
             onPressed: widget.onSwitchToVoiceCall,
@@ -105,32 +104,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildSilenceThresholdMenu() {
-    return PopupMenuButton<int>(
-      tooltip: '無音判定時間(発話が止まってから自動送信までの秒数)',
-      initialValue: _controller.silenceThresholdSeconds,
-      onSelected: (value) => _controller.setSilenceThresholdSeconds(value),
-      itemBuilder: (context) => [
-        for (var s = minSilenceThresholdSeconds; s <= maxSilenceThresholdSeconds; s++)
-          PopupMenuItem(value: s, child: Text('無音判定: $s秒')),
-      ],
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.timer_outlined, size: 20),
-            const SizedBox(width: 4),
-            Text('${_controller.silenceThresholdSeconds}秒'),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildListeningIndicator() {
-    final countdown = _controller.silenceCountdown;
-    final label = countdown != null ? '送信まで: $countdown' : '音声を認識しています…';
     return Container(
       width: double.infinity,
       color: Colors.red.shade50,
@@ -140,7 +114,7 @@ class _ChatScreenState extends State<ChatScreen> {
         children: [
           Icon(Icons.fiber_manual_record, color: Colors.red.shade400, size: 12),
           const SizedBox(width: 8),
-          Text(label, style: TextStyle(color: Colors.red.shade700)),
+          Text('音声を認識しています…', style: TextStyle(color: Colors.red.shade700)),
         ],
       ),
     );
