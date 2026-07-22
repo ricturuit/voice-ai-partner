@@ -1,92 +1,94 @@
 import 'dart:async';
+import 'dart:js_interop';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:web/web.dart' as web;
 
-/// Owns all TTS/cue playback and the browser-autoplay "unlock" workaround.
+/// Owns all TTS/cue playback, built directly on the Web Audio API.
 ///
-/// Browsers only allow audio to autoplay without a fresh user gesture when it
-/// is the continuation of an already-playing session tied to a real click/
-/// tap — a brand-new play() call issued later (e.g. once a slow reply
-/// finally arrives) gets silently blocked, with no error and no visible
-/// audio-activity indicator. The workaround: start one continuously-looping
-/// silent clip the instant a real user gesture is available (see [unlock]),
-/// and never issue a fresh play() call for the sole purpose of staying
-/// "unlocked" — once a reply is ready, swap this same player's source to it
-/// (interrupting the loop), then resume the loop afterwards so the *next*
-/// reply — however long the wait — stays covered too.
+/// Browsers only allow audio to play without a fresh user gesture through an
+/// `AudioContext` that a user gesture has already resumed — once resumed,
+/// that SAME context can schedule and play any number of buffers at any
+/// later time (however long the wait) with no further gesture required. See
+/// [unlock].
+///
+/// This deliberately does not use the `audioplayers` package's
+/// `<audio>`-element-based playback. That package recreates the underlying
+/// `HTMLAudioElement` (and reconnects it to the audio graph) every time the
+/// source URL changes — a previous version of this service relied on
+/// swapping a single `AudioPlayer`'s source from a silent "unlock" loop to
+/// the real reply audio, on the theory that this counted as one continuous,
+/// already-gesture-authorized playback session. In practice each swap is a
+/// brand-new element under the hood, and some browsers (notably iOS Safari)
+/// require a fresh user gesture for that new element regardless of how
+/// "unlocked" the page seemed a moment earlier. That mismatch was the actual
+/// cause of "reply audio doesn't autoplay, only text shows up" for slow
+/// replies: the swap silently failed once the API round-trip outlasted the
+/// original tap. Playing everything through one persistent `AudioContext`
+/// instead sidesteps this entirely, since nothing about scheduling a new
+/// buffer on an already-running context is gated by recency of a gesture.
 class AudioPlaybackService {
-  final AudioPlayer _player = AudioPlayer();
-  // Separate player for the short "ready to speak"/"your turn" cue so it
-  // never gets tangled up with the reply-audio playback logic below.
-  final AudioPlayer _cuePlayer = AudioPlayer();
-
-  bool _silentLoopActive = false;
-  Future<void>? _silentLoopStarting;
-
-  // Several call sites (unlock's loop-start and play()'s real playback) can
-  // race on this same AudioPlayer — audioplayers_web's WrappedPlayer mutates
-  // shared, non-atomic state across await points inside play(), so any two
-  // overlapping calls can corrupt that state and leave playback broken for
-  // the rest of the session. Funnel every call through this queue so at
-  // most one is ever in flight at a time.
-  Future<void> _opQueue = Future.value();
-
-  // audioPlayer.play()'s returned Future can sometimes never resolve or
-  // reject at all when the browser silently blocks a non-gesture-linked
-  // play() call. Every op run through [_runQueued] is bounded by this
-  // timeout specifically so a single hung call (most likely the silent
-  // loop's start) can't wedge every operation queued after it.
-  static const _opTimeout = Duration(seconds: 10);
-  static const _completionTimeout = Duration(seconds: 30);
-
+  web.AudioContext? _context;
+  web.AudioBufferSourceNode? _activeSource;
   Completer<void>? _activeCompleter;
 
-  /// Primes the browser to allow autoplay later in this session. Must be
-  /// invoked synchronously (before any `await`) from inside a real
-  /// user-gesture handler — a button tap — so the resulting play() call is
-  /// attributed to that gesture. Callers still mid-gesture (e.g. right
-  /// before starting speech recognition) should NOT await this, since doing
-  /// so delays whatever else the gesture needs to do; callers past the
-  /// gesture (e.g. right before an API call) should await it.
-  Future<void> unlock() {
-    if (_silentLoopActive) return Future.value();
-    final existing = _silentLoopStarting;
-    if (existing != null) return existing;
-    final future = _startSilentLoop();
-    _silentLoopStarting = future;
-    future.whenComplete(() {
-      if (identical(_silentLoopStarting, future)) _silentLoopStarting = null;
-    });
-    return future;
-  }
+  web.AudioContext _ensureContext() => _context ??= web.AudioContext();
 
-  Future<void> _startSilentLoop() async {
-    try {
-      await _runQueued(() async {
-        await _player.setReleaseMode(ReleaseMode.loop);
-        // volume: 0.0 is safe here since every real playback call below
-        // passes its own explicit volume, so nothing depends on inheriting
-        // whatever this loop last set. Zeroing the gain — on top of the
-        // asset already being silent — is also a defensive measure against
-        // the browser's echo-cancellation/AGC pipeline treating this
-        // continuously-active output as "audio is playing" and suppressing
-        // quiet mic input while it runs.
-        await _player.play(AssetSource('sounds/unlock_silent.wav'), volume: 0.0);
-      });
-      _silentLoopActive = true;
-    } catch (e) {
-      // Purely a best-effort unlock; never let it affect the actual flow.
-      // Leave _silentLoopActive false so the next caller retries instead of
-      // assuming coverage that was never actually achieved.
-      debugPrint('Silent audio-unlock loop failed to start: $e');
+  /// Primes the browser to allow playback later in this session. Must be
+  /// invoked synchronously (before any other `await`) from inside a real
+  /// user-gesture handler — a button tap — so the underlying `resume()`
+  /// call is attributed to that gesture. Safe to call on every tap: once
+  /// the context is actually resumed, this and all future calls are cheap
+  /// no-ops for the rest of the page's lifetime.
+  static const _resumeTimeout = Duration(seconds: 5);
+  static const _completionTimeout = Duration(seconds: 30);
+
+  Future<void> unlock() async {
+    final context = _ensureContext();
+    if (context.state == 'suspended') {
+      try {
+        // Without a genuine user gesture behind this call (e.g. this ever
+        // runs in an automated/headless context), resume() can sit pending
+        // forever rather than resolving or rejecting — bound it so a single
+        // bad call can't hang every future await of this method.
+        await context.resume().toDart.timeout(_resumeTimeout);
+      } catch (e) {
+        // Best-effort only; if this didn't actually unlock anything, the
+        // next real play() attempt will surface that on its own.
+        debugPrint('AudioContext resume failed: $e');
+      }
     }
   }
 
-  /// Soft "pon" cue meaning "you may act now".
+  Future<web.AudioBuffer> _fetchAndDecode(String url) async {
+    final response = await web.window.fetch(url.toJS).toDart;
+    final data = await response.arrayBuffer().toDart;
+    return _ensureContext().decodeAudioData(data).toDart;
+  }
+
+  Future<web.AudioBuffer> _loadAssetAndDecode(String assetKey) async {
+    final byteData = await rootBundle.load(assetKey);
+    return _ensureContext().decodeAudioData(byteData.buffer.toJS).toDart;
+  }
+
+  void _playBuffer(web.AudioBuffer buffer, {required double volume}) {
+    final context = _ensureContext();
+    final source = context.createBufferSource();
+    source.buffer = buffer;
+    final gain = context.createGain();
+    gain.gain.value = volume;
+    source.connect(gain);
+    gain.connect(context.destination);
+    source.start();
+  }
+
+  /// Soft "pon" cue meaning "you may act now" — played both when the mic
+  /// starts listening and when the reply has finished being read aloud.
   Future<void> playCue() async {
     try {
-      await _cuePlayer.play(AssetSource('sounds/silence_cue.wav'), volume: 0.18);
+      final buffer = await _loadAssetAndDecode('assets/sounds/silence_cue.wav');
+      _playBuffer(buffer, volume: 0.18);
     } catch (e) {
       // Purely a nice-to-have UI cue — never let it affect the actual
       // conversation flow.
@@ -94,67 +96,64 @@ class AudioPlaybackService {
     }
   }
 
-  /// Plays [url] and waits for it to finish (or for [stop] to be called).
-  /// Resumes the silent unlock loop afterwards. Throws on failure —
-  /// callers decide whether that's worth surfacing to the user (autoplay
-  /// being blocked is expected/silent for an automatic reply, but not for a
-  /// manual replay tap).
+  /// Fetches, decodes, and plays [url], waiting for it to finish (or for
+  /// [stop] to be called). Throws on failure — callers decide whether
+  /// that's worth surfacing (autoplay being blocked is expected/silent for
+  /// an automatic reply, but not for a manual replay tap).
   Future<void> play(String url) async {
-    // About to interrupt the silent loop (if any) by swapping this
-    // player's source to the real reply — mark it inactive so a concurrent
-    // unlock() caller doesn't wrongly think coverage still exists, and so
-    // it gets resumed (see finally below) rather than skipped as a no-op.
-    _silentLoopActive = false;
+    final web.AudioBuffer buffer;
+    try {
+      buffer = await _fetchAndDecode(url);
+    } catch (e) {
+      debugPrint('Audio fetch/decode failed for $url: $e');
+      rethrow;
+    }
+
+    final context = _ensureContext();
+    final source = context.createBufferSource();
+    source.buffer = buffer;
+    final gain = context.createGain();
+    gain.gain.value = 1.0;
+    source.connect(gain);
+    gain.connect(context.destination);
+
     final completer = Completer<void>();
     _activeCompleter = completer;
-    final subscription = _player.onPlayerComplete.listen((_) {
+    _activeSource = source;
+    final subscription = source.onEnded.listen((_) {
       if (!completer.isCompleted) completer.complete();
     });
     try {
-      // play() resolves once playback *starts*, not once it finishes, and
-      // some browsers leave it pending forever if autoplay is blocked —
-      // _runQueued already bounds it with _opTimeout, so no separate
-      // timeout is needed here. Once it resolves (or times out),
-      // separately wait for the real completion event.
-      await _runQueued(() async {
-        await _player.setReleaseMode(ReleaseMode.release);
-        await _player.play(UrlSource(url), volume: 1.0);
-      });
+      source.start();
+      // The 'ended' event is what normally completes this, but it can never
+      // fire if the context somehow never renders (e.g. stuck suspended) —
+      // bound the wait so that can't hang the caller forever.
       await completer.future.timeout(_completionTimeout, onTimeout: () {});
-    } catch (e) {
-      // Always log so playback failures (blocked autoplay, CORS, expired
-      // signed URL, ...) are visible in the browser console.
-      debugPrint('Audio playback failed for $url: $e');
-      rethrow;
     } finally {
       await subscription.cancel();
+      if (identical(_activeSource, source)) _activeSource = null;
       _activeCompleter = null;
-      // Not awaited — best-effort background upkeep, not something the
-      // caller needs to wait on.
-      unawaited(unlock());
     }
   }
 
-  /// Stops whatever is currently playing. [play]'s completer doesn't fire
-  /// from AudioPlayer.stop() alone (it doesn't emit onPlayerComplete), so
-  /// this completes it directly to unblock a pending [play] call.
+  /// Stops whatever reply/manual-replay audio [play] is currently awaiting.
   Future<void> stop() async {
-    await _player.stop();
+    try {
+      _activeSource?.stop();
+    } catch (e) {
+      // stop() throws if the source already finished naturally right
+      // before this call landed — harmless, the completer below still
+      // needs firing either way.
+      debugPrint('AudioBufferSourceNode.stop() failed: $e');
+    }
+    _activeSource = null;
     _activeCompleter?.complete();
-  }
-
-  Future<T> _runQueued<T>(Future<T> Function() action) {
-    final scheduled = _opQueue.then((_) => action().timeout(_opTimeout));
-    // Chain the *next* op off this one regardless of whether it succeeds —
-    // a failed play() must not wedge every subsequent queued call behind a
-    // permanently-unresolved future. Errors still propagate to whoever
-    // awaits `scheduled` directly.
-    _opQueue = scheduled.then((_) {}, onError: (_) {});
-    return scheduled;
+    _activeCompleter = null;
   }
 
   void dispose() {
-    _player.dispose();
-    _cuePlayer.dispose();
+    unawaited(stop());
+    unawaited(_context?.close().toDart ?? Future.value());
+    _context = null;
   }
 }
