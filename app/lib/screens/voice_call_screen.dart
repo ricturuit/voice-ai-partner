@@ -73,11 +73,11 @@ class _VoiceCallScreenState extends State<VoiceCallScreen> with SingleTickerProv
     return _ButtonVisualState.idle;
   }
 
-  // Single tap while listening ends input (sends whatever was recognized so
-  // far) instead of canceling — ambient noise can keep the recognizer from
-  // ever going quiet on its own, so relying solely on the silence timer left
-  // the button stuck in "listening" with no way out. Canceling is now a
-  // long-press instead, so it stays available but isn't the default action.
+  // Single tap while listening ends input and sends whatever was recognized
+  // so far — voice input is always explicit (tap to start, tap to stop and
+  // send), never an automatic silence-timeout. Canceling without sending is
+  // a long-press instead, so it stays available but isn't the default
+  // action.
   Future<void> _handleTap() async {
     switch (_visualState) {
       case _ButtonVisualState.sending:
