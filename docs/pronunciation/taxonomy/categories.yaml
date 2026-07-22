@@ -1,0 +1,58 @@
+# カテゴリ定義。
+#
+# - id は dictionary/ 配下のファイル名(拡張子を除く)と1対1で対応する。
+#   例: id: aws → dictionary/aws.yaml のレコードは全て category: aws を持つ。
+# - id はケバブケースではなくスネークケースで統一する(ファイル名と完全一致させるため)。
+# - 新しいカテゴリを追加する場合は、ここに定義を追加したうえで
+#   dictionary/<id>.yaml を新規作成すること。
+categories:
+  - id: ai_llm
+    label: "AI・LLM"
+  - id: ai_agent
+    label: "AIエージェント"
+  - id: aws
+    label: "AWS"
+  - id: azure
+    label: "Azure"
+  - id: gcp
+    label: "GCP"
+  - id: programming
+    label: "Programming"
+  - id: framework
+    label: "Framework"
+  - id: library
+    label: "Library"
+  - id: database
+    label: "Database"
+  - id: dev_tools
+    label: "Development Tools"
+  - id: web
+    label: "Web"
+  - id: networking
+    label: "Networking"
+  - id: security
+    label: "Security"
+  - id: git_cicd
+    label: "Git・CI/CD"
+  - id: software_design
+    label: "Software Design"
+  - id: saas
+    label: "SaaS"
+  - id: consulting
+    label: "Consulting"
+  - id: marketing
+    label: "Marketing"
+  - id: business
+    label: "Business"
+  - id: data_analysis
+    label: "Data Analysis"
+  - id: statistics
+    label: "Statistics"
+  - id: machine_learning
+    label: "Machine Learning"
+  - id: bi
+    label: "BI"
+  - id: japanese_technical
+    label: "Japanese Technical"
+  - id: custom
+    label: "Custom"

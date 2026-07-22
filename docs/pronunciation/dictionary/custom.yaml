@@ -1,0 +1,9 @@
+# category: custom
+# 一般的な技術用語カテゴリに当てはまらない読み替え。
+# アプリ固有のキャラクター設定に紐づくものには app_specific タグを付ける。
+- id: sensei-address
+  term: せんせえ
+  reading: せんせい
+  category: custom
+  tags: [app_specific]
+  aliases: []

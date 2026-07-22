@@ -1,0 +1,43 @@
+# category: saas
+# このファイルのレコードは全て category: saas を持つこと(validateが検証する)。
+- id: saas
+  term: SaaS
+  reading: サース
+  category: saas
+  tags: [acronym]
+  aliases: []
+
+- id: slack
+  term: Slack
+  reading: スラック
+  category: saas
+  tags: [brand_name]
+  aliases: []
+
+- id: notion
+  term: Notion
+  reading: ノーション
+  category: saas
+  tags: [brand_name]
+  aliases: []
+
+- id: salesforce
+  term: Salesforce
+  reading: セールスフォース
+  category: saas
+  tags: [brand_name]
+  aliases: []
+
+- id: zoom
+  term: Zoom
+  reading: ズーム
+  category: saas
+  tags: [brand_name]
+  aliases: []
+
+- id: figma
+  term: Figma
+  reading: フィグマ
+  category: saas
+  tags: [brand_name]
+  aliases: []

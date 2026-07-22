@@ -1,0 +1,122 @@
+# category: networking
+# --- 既存データ(移行元) ---
+- id: http
+  term: HTTP
+  reading: エイチティーティーピー
+  category: networking
+  tags: [acronym]
+  aliases: []
+
+- id: https
+  term: HTTPS
+  reading: エイチティーティーピーエス
+  category: networking
+  tags: [acronym]
+  aliases: []
+
+# reading にスペースは含めない(taxonomy/pronunciation_rules.md §1)。
+- id: http2
+  term: "HTTP/2"
+  reading: エイチティーティーピーツー
+  category: networking
+  tags: [acronym, number_unit]
+  aliases: []
+
+- id: http3
+  term: "HTTP/3"
+  reading: エイチティーティーピースリー
+  category: networking
+  tags: [acronym, number_unit]
+  aliases: []
+
+- id: ipv4
+  term: IPv4
+  reading: アイピーブイフォー
+  category: networking
+  tags: [acronym, number_unit]
+  aliases: []
+
+- id: ipv6
+  term: IPv6
+  reading: アイピーブイシックス
+  category: networking
+  tags: [acronym, number_unit]
+  aliases: []
+
+# --- 追加 ---
+- id: dns
+  term: DNS
+  reading: ディーエヌエス
+  category: networking
+  tags: [acronym]
+  aliases: []
+
+- id: ip
+  term: IP
+  reading: アイピー
+  category: networking
+  tags: [acronym]
+  aliases: []
+
+- id: tcp
+  term: TCP
+  reading: ティーシーピー
+  category: networking
+  tags: [acronym]
+  aliases: []
+
+- id: udp
+  term: UDP
+  reading: ユーディーピー
+  category: networking
+  tags: [acronym]
+  aliases: []
+
+- id: tcp-ip
+  term: "TCP/IP"
+  reading: ティーシーピーアイピー
+  category: networking
+  tags: [acronym]
+  aliases: []
+
+- id: ssh
+  term: SSH
+  reading: エスエスエイチ
+  category: networking
+  tags: [acronym]
+  aliases: []
+
+- id: ftp
+  term: FTP
+  reading: エフティーピー
+  category: networking
+  tags: [acronym]
+  aliases: []
+
+- id: cdn
+  term: CDN
+  reading: シーディーエヌ
+  category: networking
+  tags: [acronym]
+  aliases: []
+
+- id: lan
+  term: LAN
+  reading: ラン
+  category: networking
+  tags: [acronym]
+  aliases: []
+
+- id: wan
+  term: WAN
+  reading: ワン
+  category: networking
+  tags: [acronym]
+  aliases: []
+
+- id: nat
+  term: NAT
+  reading: ナット
+  category: networking
+  tags: [acronym]
+  aliases: []

@@ -1,0 +1,113 @@
+# category: framework
+# このファイルのレコードは全て category: framework を持つこと(validateが検証する)。
+- id: react
+  term: React
+  reading: リアクト
+  category: framework
+  tags: [brand_name]
+  aliases: ["React.js"]
+
+- id: vuejs
+  term: "Vue.js"
+  reading: ビュー
+  category: framework
+  tags: [brand_name]
+  aliases: ["Vue"]
+
+- id: angular
+  term: Angular
+  reading: アンギュラー
+  category: framework
+  tags: [brand_name]
+  aliases: ["AngularJS"]
+
+- id: nextjs
+  term: "Next.js"
+  reading: ネクストジェイエス
+  category: framework
+  tags: [brand_name]
+  aliases: ["NextJS"]
+
+- id: nodejs
+  term: "Node.js"
+  reading: ノードジェイエス
+  category: framework
+  tags: [brand_name]
+  aliases: ["NodeJS"]
+
+- id: nuxt
+  term: Nuxt
+  reading: ナクスト
+  category: framework
+  tags: [brand_name]
+  aliases: ["Nuxt.js"]
+
+# 一般的な英単語 "Express" は誤マッチのリスクが高いため、term/aliases
+# ともに "Express.js" の形のみ登録する(registration_rules.md の
+# 用語選定方針)。
+- id: expressjs
+  term: "Express.js"
+  reading: エクスプレス
+  category: framework
+  tags: [brand_name]
+  aliases: ["ExpressJS"]
+
+- id: django
+  term: Django
+  reading: ジャンゴ
+  category: framework
+  tags: [brand_name]
+  aliases: []
+
+- id: flask
+  term: Flask
+  reading: フラスク
+  category: framework
+  tags: [brand_name]
+  aliases: []
+
+- id: fastapi
+  term: FastAPI
+  reading: ファストエーピーアイ
+  category: framework
+  tags: [brand_name]
+  aliases: []
+
+# 一般的な英単語 "Spring" 単体は誤マッチのリスクが高いため、
+# "Spring Boot" の形のみ登録する。
+- id: spring-boot
+  term: "Spring Boot"
+  reading: スプリングブート
+  category: framework
+  tags: [brand_name]
+  aliases: []
+
+# 一般的な英単語 "Rails" 単体は誤マッチのリスクが高いため、
+# "Ruby on Rails" の形のみ登録する。
+- id: rails
+  term: "Ruby on Rails"
+  reading: ルビーオンレールズ
+  category: framework
+  tags: [brand_name]
+  aliases: []
+
+- id: laravel
+  term: Laravel
+  reading: ララベル
+  category: framework
+  tags: [brand_name]
+  aliases: []
+
+- id: dotnet
+  term: ".NET"
+  reading: ドットネット
+  category: framework
+  tags: [brand_name]
+  aliases: []
+
+- id: asp-dotnet
+  term: "ASP.NET"
+  reading: エーエスピードットネット
+  category: framework
+  tags: [brand_name]
+  aliases: []

@@ -1,0 +1,13 @@
+{
+  "name": "voice-ai-partner-pronunciation-dictionary",
+  "private": true,
+  "version": "1.0.0",
+  "description": "音声合成用の技術用語発音辞書 — taxonomy/dictionaryを検証・generatedへビルドするツール",
+  "scripts": {
+    "validate": "node scripts/validate.js",
+    "build": "node scripts/build.js"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

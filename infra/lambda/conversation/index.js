@@ -1,0 +1,307 @@
+const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
+const {
+  DynamoDBDocumentClient,
+  QueryCommand,
+  PutCommand,
+} = require("@aws-sdk/lib-dynamodb");
+const { S3Client, PutObjectCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+const {
+  SecretsManagerClient,
+  GetSecretValueCommand,
+} = require("@aws-sdk/client-secrets-manager");
+const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
+
+const ddbClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const s3Client = new S3Client({});
+const secretsClient = new SecretsManagerClient({});
+
+const TABLE_NAME = process.env.SHORT_TERM_MEMORY_TABLE_NAME;
+const BUCKET_NAME = process.env.ARTIFACTS_BUCKET_NAME;
+const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001";
+// Preset ElevenLabs voice, swappable without code changes once a cloned
+// voice ID exists (see README.md). Must be a voice already owned by the
+// account (GET /v1/voices) — the free plan rejects voice-library IDs
+// that haven't been added to the account.
+const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "EXAVITQu4vr4xnSDxMaL";
+const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || "eleven_v3";
+// eleven_v3 is more expressive than v2 by design, which showed up in testing
+// as occasional unwanted mid-reply swings in tone/energy. Raising stability
+// (0-1, higher = more consistent/less varied delivery) trades away some of
+// that expressiveness for fewer erratic jumps. Starting point pending
+// real-device listening feedback — adjust ELEVENLABS_STABILITY without a
+// code change if it needs tuning further.
+const ELEVENLABS_STABILITY = parseFloat(process.env.ELEVENLABS_STABILITY || "0.6");
+const ELEVENLABS_SIMILARITY_BOOST = parseFloat(process.env.ELEVENLABS_SIMILARITY_BOOST || "0.8");
+// A previous, much lower value (400) was cutting off replies mid-sentence
+// whenever the character legitimately needed more room (e.g. a search
+// result). Reply length/brevity is controlled entirely by system-prompt.md's
+// "音声会話ルール" section now — this is a generous safety ceiling only
+// (bounds worst-case Claude/ElevenLabs cost and latency), not expected to be
+// hit in normal conversation.
+const CLAUDE_MAX_TOKENS = parseInt(process.env.CLAUDE_MAX_TOKENS || "4096", 10);
+// Character persona/style instructions, edited as a standalone file rather
+// than an env var (Lambda env vars share a 4KB total budget across all of
+// them, too tight for a prompt this size) — edit system-prompt.md and
+// redeploy to change how the character speaks.
+const SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, "system-prompt.md"), "utf8");
+// ElevenLabs (and TTS engines generally) frequently misreads English
+// acronyms embedded in Japanese text — spelling them out letter-by-letter
+// incorrectly rather than using the natural katakana reading. This map is
+// applied ONLY to the text sent for speech synthesis, never to the text
+// returned to the client, shown in chat, or stored in DynamoDB history —
+// so the transcript stays as Claude actually wrote it.
+//
+// The map itself is generated from docs/pronunciation/ (the maintained
+// technical-term + character-pronunciation master, including the "せんせえ"
+// → "せんせい" override — see docs/pronunciation/README.md) and this file
+// (pronunciation-lookup.json) is a committed copy sitting next to index.js
+// so it's picked up by the plain directory zip `Code.fromAsset('lambda/
+// conversation')` uses (no bundler step in this stack). After editing
+// docs/pronunciation/dictionary/*.yaml, run `npm run build` from
+// docs/pronunciation/ to regenerate this file, then redeploy.
+const PRONUNCIATION_LOOKUP = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "pronunciation-lookup.json"), "utf8"),
+).lookup;
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Precompiled once at module load (not per-request), longest term first so
+// a multi-word/compound term (e.g. "CI/CD") gets substituted before a
+// shorter term it contains (e.g. "CD") has a chance to corrupt the
+// substring. Each match is rejected if it immediately touches an ASCII
+// letter/digit on either side (so "AI" doesn't fire inside "AIRPORT") —
+// using a lookaround instead of \b since \b never matches around Japanese
+// characters, and this works uniformly for terms containing regex-special
+// characters (C++, .NET, GPT-4.1) once they're escaped.
+const TTS_PATTERNS = Object.entries(PRONUNCIATION_LOOKUP)
+  .sort(([a], [b]) => b.length - a.length)
+  .map(([term, reading]) => ({
+    pattern: new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(term)}(?![A-Za-z0-9])`, "g"),
+    reading,
+  }));
+
+// Strips URLs from the TTS-bound copy only — a spoken-out URL is
+// unintelligible, and the chat UI already shows the real link, so the
+// visible/returned replyText keeps it untouched (same "TTS-only" rule as
+// the pronunciation substitutions above). Runs before those substitutions
+// so a URL's path/query segments can't accidentally match a dictionary
+// term. See system-prompt.md's "URL(リンク)の扱い" — Claude is told to
+// lead into a URL with "→", which this also cleans up once the URL itself
+// is gone, and to only include a URL when the user actually asked for one.
+function stripUrlsForTts(text) {
+  return text
+    .replace(/[(（]\s*https?:\/\/[^\s)）]+\s*[)）]/g, "")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/→\s*$/gm, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function toTtsText(text) {
+  let result = stripUrlsForTts(text);
+  for (const { pattern, reading } of TTS_PATTERNS) {
+    result = result.replace(pattern, reading);
+  }
+  return result;
+}
+
+const HISTORY_LIMIT = 20;
+const TTL_SECONDS = 6 * 60 * 60;
+const AUDIO_URL_EXPIRY_SECONDS = 3600;
+
+// Cached across warm invocations so we don't call Secrets Manager on every request.
+const secretCache = new Map();
+async function getSecretValue(secretArn) {
+  if (secretCache.has(secretArn)) {
+    return secretCache.get(secretArn);
+  }
+  const response = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretArn }));
+  secretCache.set(secretArn, response.SecretString);
+  return response.SecretString;
+}
+
+function respond(statusCode, bodyObj) {
+  return {
+    statusCode,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(bodyObj),
+  };
+}
+
+exports.handler = async (event) => {
+  try {
+    const providedSecret = (event.headers && event.headers["x-api-secret"]) || "";
+    const expectedSecret = await getSecretValue(process.env.SHARED_API_SECRET_ARN);
+    if (providedSecret !== expectedSecret) {
+      return respond(401, { error: "unauthorized" });
+    }
+
+    let body;
+    try {
+      body = JSON.parse(event.body || "{}");
+    } catch {
+      return respond(400, { error: "invalid_json" });
+    }
+
+    const { sessionId, text } = body;
+    if (!sessionId || typeof sessionId !== "string" || !text || typeof text !== "string") {
+      return respond(400, { error: "sessionId and text are required" });
+    }
+
+    // 1. Load recent conversation history for this session.
+    const historyResult = await ddbClient.send(
+      new QueryCommand({
+        TableName: TABLE_NAME,
+        KeyConditionExpression: "sessionId = :sid",
+        ExpressionAttributeValues: { ":sid": sessionId },
+        ScanIndexForward: false,
+        Limit: HISTORY_LIMIT,
+      }),
+    );
+    const history = (historyResult.Items || []).slice().reverse();
+
+    const claudeMessages = history.map((item) => ({
+      role: item.role,
+      content: item.message,
+    }));
+    claudeMessages.push({ role: "user", content: text });
+
+    // 2. Ask Claude for a reply, with history as context.
+    const claudeApiKey = await getSecretValue(process.env.CLAUDE_API_KEY_SECRET_ARN);
+    const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": claudeApiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: CLAUDE_MAX_TOKENS,
+        system: SYSTEM_PROMPT,
+        messages: claudeMessages,
+        // Server-executed — Claude decides on its own whether a given turn
+        // needs a search (see system-prompt.md's guidance on when to search
+        // vs. answer directly) and, if so, runs it and folds the result
+        // into the same response with no extra round trip from this Lambda.
+        // Basic (non-dynamic-filtering) variant: CLAUDE_MODEL is Haiku
+        // 4.5, which isn't in the model list documented to support the
+        // newer dynamic-filtering tool versions.
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
+      }),
+    });
+
+    if (!claudeResponse.ok) {
+      console.error("Claude API error", claudeResponse.status, await claudeResponse.text());
+      return respond(502, { error: "claude_api_error" });
+    }
+
+    const claudeData = await claudeResponse.json();
+    const replyText = (claudeData.content || [])
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("\n")
+      .trim();
+
+    if (claudeData.stop_reason === "max_tokens") {
+      // Claude hit CLAUDE_MAX_TOKENS before finishing the sentence — the
+      // reply below is truncated mid-thought. Logged (not treated as an
+      // error) so CLAUDE_MAX_TOKENS can be re-tuned if this shows up often.
+      console.warn(
+        "Claude reply truncated by max_tokens",
+        JSON.stringify({ maxTokens: CLAUDE_MAX_TOKENS, replyLength: replyText.length }),
+      );
+    } else if (claudeData.stop_reason === "pause_turn") {
+      // A web_search turn ran long enough to hit the server-side search
+      // loop's own limit. Not resumed here (would need a second request
+      // echoing the paused assistant turn back) — logged so this can be
+      // revisited if it turns out to happen often with max_uses: 3.
+      console.warn("Claude search turn paused (pause_turn)", JSON.stringify({ replyLength: replyText.length }));
+    }
+
+    if (!replyText) {
+      console.error("Claude API returned no text content", JSON.stringify(claudeData));
+      return respond(502, { error: "empty_claude_response" });
+    }
+
+    // 3. Synthesize speech for the reply via ElevenLabs.
+    const elevenLabsApiKey = await getSecretValue(process.env.ELEVENLABS_API_KEY_SECRET_ARN);
+    const ttsResponse = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
+      {
+        method: "POST",
+        headers: {
+          "xi-api-key": elevenLabsApiKey,
+          "content-type": "application/json",
+          accept: "audio/mpeg",
+        },
+        body: JSON.stringify({
+          text: toTtsText(replyText),
+          model_id: ELEVENLABS_MODEL_ID,
+          voice_settings: {
+            stability: ELEVENLABS_STABILITY,
+            similarity_boost: ELEVENLABS_SIMILARITY_BOOST,
+          },
+        }),
+      },
+    );
+
+    if (!ttsResponse.ok) {
+      console.error("ElevenLabs API error", ttsResponse.status, await ttsResponse.text());
+      return respond(502, { error: "tts_api_error" });
+    }
+
+    const audioBuffer = Buffer.from(await ttsResponse.arrayBuffer());
+
+    // 4. Store the audio in S3 and issue a short-lived signed URL for it.
+    const audioKey = `audio/${sessionId}/${Date.now()}-${crypto.randomUUID()}.mp3`;
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: audioKey,
+        Body: audioBuffer,
+        ContentType: "audio/mpeg",
+      }),
+    );
+
+    const audioUrl = await getSignedUrl(
+      s3Client,
+      new GetObjectCommand({ Bucket: BUCKET_NAME, Key: audioKey }),
+      { expiresIn: AUDIO_URL_EXPIRY_SECONDS },
+    );
+
+    // 5. Persist this turn (user + assistant) with a short TTL.
+    const now = Date.now();
+    const expiresAt = Math.floor(now / 1000) + TTL_SECONDS;
+    await Promise.all([
+      ddbClient.send(
+        new PutCommand({
+          TableName: TABLE_NAME,
+          Item: { sessionId, createdAt: now, role: "user", message: text, expiresAt },
+        }),
+      ),
+      ddbClient.send(
+        new PutCommand({
+          TableName: TABLE_NAME,
+          Item: {
+            sessionId,
+            createdAt: now + 1,
+            role: "assistant",
+            message: replyText,
+            expiresAt,
+          },
+        }),
+      ),
+    ]);
+
+    return respond(200, { text: replyText, audioUrl });
+  } catch (err) {
+    console.error("Unhandled error", err);
+    return respond(500, { error: "internal_error" });
+  }
+};

@@ -1,0 +1,19 @@
+# category: japanese_technical
+# このファイルのレコードは全て category: japanese_technical を持つこと(validateが検証する)。
+# 他カテゴリはローマ字表記の技術用語(TTSの読み間違いリスク)を対象にして
+# いるが、本カテゴリは漢字の読みが一意に定まりにくい和製の技術用語を対象と
+# する(想定スコープが他カテゴリと異なるため、件数は少数に絞っている。
+# taxonomy/decision_log.md 参照)。
+- id: idempotency-ja
+  term: 冪等性
+  reading: べきとうせい
+  category: japanese_technical
+  tags: []
+  aliases: ["べき等性"]
+
+- id: threshold-ja
+  term: 閾値
+  reading: しきいち
+  category: japanese_technical
+  tags: []
+  aliases: ["しきい値"]

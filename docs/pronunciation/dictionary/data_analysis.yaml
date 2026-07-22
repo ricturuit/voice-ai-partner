@@ -1,0 +1,29 @@
+# category: data_analysis
+# このファイルのレコードは全て category: data_analysis を持つこと(validateが検証する)。
+- id: etl
+  term: ETL
+  reading: イーティーエル
+  category: data_analysis
+  tags: [acronym]
+  aliases: []
+
+- id: csv
+  term: CSV
+  reading: シーエスブイ
+  category: data_analysis
+  tags: [acronym]
+  aliases: []
+
+- id: kpi
+  term: KPI
+  reading: ケーピーアイ
+  category: data_analysis
+  tags: [acronym]
+  aliases: []
+
+- id: excel
+  term: Excel
+  reading: エクセル
+  category: data_analysis
+  tags: [brand_name]
+  aliases: []

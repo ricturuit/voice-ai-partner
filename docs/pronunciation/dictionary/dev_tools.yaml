@@ -1,0 +1,72 @@
+# category: dev_tools
+# --- 既存データ(移行元) ---
+- id: cli
+  term: CLI
+  reading: シーエルアイ
+  category: dev_tools
+  tags: [acronym]
+  aliases: []
+
+# --- 追加 ---
+- id: ide
+  term: IDE
+  reading: アイディーイー
+  category: dev_tools
+  tags: [acronym]
+  aliases: ["Integrated Development Environment"]
+
+- id: vscode
+  term: "VS Code"
+  reading: ブイエスコード
+  category: dev_tools
+  tags: [brand_name]
+  aliases: ["Visual Studio Code", "VSCode"]
+
+- id: docker
+  term: Docker
+  reading: ドッカー
+  category: dev_tools
+  tags: [brand_name]
+  aliases: ["docker"]
+
+- id: kubernetes
+  term: Kubernetes
+  reading: クバネティス
+  category: dev_tools
+  tags: [brand_name]
+  aliases: ["K8s"]
+
+- id: npm
+  term: npm
+  reading: エヌピーエム
+  category: dev_tools
+  tags: [acronym]
+  aliases: []
+
+- id: postman
+  term: Postman
+  reading: ポストマン
+  category: dev_tools
+  tags: [brand_name]
+  aliases: []
+
+- id: curl
+  term: curl
+  reading: カール
+  category: dev_tools
+  tags: [brand_name]
+  aliases: []
+
+- id: homebrew
+  term: Homebrew
+  reading: ホームブリュー
+  category: dev_tools
+  tags: [brand_name]
+  aliases: []
+
+- id: vim
+  term: Vim
+  reading: ヴィム
+  category: dev_tools
+  tags: [brand_name]
+  aliases: []

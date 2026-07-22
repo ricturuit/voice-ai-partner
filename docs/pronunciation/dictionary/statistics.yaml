@@ -1,0 +1,17 @@
+# category: statistics
+# このファイルのレコードは全て category: statistics を持つこと(validateが検証する)。
+# 音声会話での実際の登場頻度に確信が持てる語のみ、あえて少数に絞って登録している。
+# taxonomy/decision_log.md 参照。
+- id: ab-test
+  term: "A/Bテスト"
+  reading: エービーテスト
+  category: statistics
+  tags: [mixed_language]
+  aliases: ["ABテスト"]
+
+- id: p-value
+  term: p値
+  reading: ピーち
+  category: statistics
+  tags: [mixed_language]
+  aliases: []

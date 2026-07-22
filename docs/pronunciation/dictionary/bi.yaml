@@ -1,0 +1,29 @@
+# category: bi
+# このファイルのレコードは全て category: bi を持つこと(validateが検証する)。
+- id: bi
+  term: BI
+  reading: ビーアイ
+  category: bi
+  tags: [acronym]
+  aliases: []
+
+- id: tableau
+  term: Tableau
+  reading: タブロー
+  category: bi
+  tags: [brand_name]
+  aliases: []
+
+- id: looker
+  term: Looker
+  reading: ルッカー
+  category: bi
+  tags: [brand_name]
+  aliases: []
+
+- id: power-bi
+  term: "Power BI"
+  reading: パワービーアイ
+  category: bi
+  tags: [brand_name]
+  aliases: ["PowerBI"]
