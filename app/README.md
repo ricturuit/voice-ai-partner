@@ -4,6 +4,15 @@
 実機iOS/Androidビルドは後回し。標準の `flutter create` 構成のままなので、
 `ios/` `android/` フォルダは既にあり、将来モバイルアプリとして流用できる。
 
+## リリース
+
+- **v1.0**(2026-07-22): 音声会話の主要フロー(テキスト/音声入力・自動再生・
+  手動再生)が実機で安定して動作することを確認できた区切りとしてリリース。
+  ロールバック用バックアップ: `backup/v1.0-release`
+  (それ以前の区切り: `backup/v0.2-pre-audio-redesign` → `backup/v0.1-pre-ccos-refactor`)
+- これ以降は細かい修正・機能追加をバージョンアップとして進める。各リリース
+  時点のバックアップは `backup/vX.Y-...` ブランチとして残す方針。
+
 ## 公開URL
 
 **https://d2nglo9qqrftj1.cloudfront.net/** ← こちらを使う(HTTPS、マイク入力に必須)
