@@ -3,7 +3,7 @@
 # アプリ固有のキャラクター設定に紐づくものには app_specific タグを付ける。
 - id: sensei-address
   term: せんせえ
-  reading: せんせい
+  reading: せんせー
   category: custom
-  tags: [app_specific]
+  tags: [app_specific, ambiguous_reading]
   aliases: []
