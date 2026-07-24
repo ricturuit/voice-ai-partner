@@ -7,10 +7,12 @@ import '../controllers/conversation_controller.dart';
 enum _ButtonVisualState { idle, listening, sending, playingReply }
 
 /// Cotomo-style dedicated voice-conversation mode: a single large circular
-/// button whose appearance and label reflect the current turn state. No
-/// chat history or text is ever shown here — the same [ConversationController]
-/// (and therefore the same sessionId/history) is shared with the chat mode
-/// screen, so switching modes never loses conversation context.
+/// button whose appearance and label reflect the current turn state, with a
+/// live caption above it showing whatever is currently being heard or
+/// spoken (see [_FlowingCaption]) — never the full chat history, just the
+/// most recent line. The same [ConversationController] (and therefore the
+/// same sessionId/history) is shared with the chat mode screen, so
+/// switching modes never loses conversation context.
 class VoiceCallScreen extends StatefulWidget {
   const VoiceCallScreen({super.key, required this.controller, required this.onSwitchToChat});
 
@@ -160,6 +162,8 @@ class _VoiceCallScreenState extends State<VoiceCallScreen> with SingleTickerProv
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              _FlowingCaption(text: _controller.captionText),
+              const SizedBox(height: 32),
               GestureDetector(
                 onTap: enabled ? _handleTap : null,
                 onLongPress: state == _ButtonVisualState.listening ? _handleLongPress : null,
@@ -209,6 +213,94 @@ class _VoiceCallScreenState extends State<VoiceCallScreen> with SingleTickerProv
           ),
         ),
       ),
+    );
+  }
+}
+
+/// A fixed-height caption window that always keeps its latest content
+/// anchored at the bottom (fully visible) and fades/scrolls anything older
+/// up and out through a gradient mask — a "flowing captions" look, so only
+/// the most recent line ever needs full attention. Bound to
+/// [ConversationController.captionText], which is either the live partial
+/// speech-recognition result while listening, or whatever was most recently
+/// said (the user's own utterance, then the assistant's reply once it
+/// arrives and is read aloud).
+class _FlowingCaption extends StatefulWidget {
+  const _FlowingCaption({required this.text});
+
+  final String text;
+
+  @override
+  State<_FlowingCaption> createState() => _FlowingCaptionState();
+}
+
+class _FlowingCaptionState extends State<_FlowingCaption> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void didUpdateWidget(covariant _FlowingCaption oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) _scrollToLatest();
+  }
+
+  void _scrollToLatest() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      height: 96,
+      width: double.infinity,
+      child: widget.text.isEmpty
+          ? const SizedBox.shrink()
+          : ShaderMask(
+              blendMode: BlendMode.dstIn,
+              shaderCallback: (rect) => const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.transparent, Colors.black, Colors.black],
+                stops: [0.0, 0.4, 1.0],
+              ).createShader(rect),
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                // The text updates programmatically (new speech recognized,
+                // a new reply arriving) — scrolling itself is never
+                // user-driven, only the auto-scroll-to-latest above.
+                physics: const NeverScrollableScrollPhysics(),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    child: Text(
+                      widget.text,
+                      key: ValueKey(widget.text),
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.82),
+                        height: 1.6,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
     );
   }
 }

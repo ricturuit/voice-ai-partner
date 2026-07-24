@@ -281,4 +281,18 @@ class ConversationController extends ChangeNotifier {
       }
     }
   }
+
+  /// Live caption text for the voice-call screen: the live partial
+  /// recognition result while listening, otherwise whatever was most
+  /// recently said — the user's own just-finished utterance right after
+  /// sending, then the assistant's reply text once it arrives (spoken aloud
+  /// at the same time via [playReplyAudio]). Error messages aren't spoken,
+  /// so they're never shown as a caption.
+  String get captionText {
+    if (isListening) return inputTextController.text;
+    if (messages.isEmpty) return '';
+    final last = messages.last;
+    if (last.role == ChatRole.error) return '';
+    return last.text;
+  }
 }

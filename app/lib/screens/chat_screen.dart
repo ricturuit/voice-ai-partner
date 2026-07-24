@@ -114,7 +114,7 @@ class _ChatScreenState extends State<ChatScreen> {
         children: [
           Icon(Icons.fiber_manual_record, color: Colors.red.shade400, size: 12),
           const SizedBox(width: 8),
-          Text('音声を認識しています…', style: TextStyle(color: Colors.red.shade700)),
+          Text('音声を認識しています…(✕でやり直せます)', style: TextStyle(color: Colors.red.shade700)),
         ],
       ),
     );
@@ -155,6 +155,12 @@ class _ChatScreenState extends State<ChatScreen> {
                   : (_controller.speechAvailable ? null : Theme.of(context).disabledColor),
             ),
           ),
+          if (_controller.isListening)
+            IconButton(
+              onPressed: _controller.cancelListening,
+              tooltip: 'やり直す(認識内容を破棄)',
+              icon: const Icon(Icons.close, color: Colors.red),
+            ),
           IconButton(
             onPressed: _controller.isPlayingReply ? _controller.forceStopReading : null,
             tooltip: '読み上げを停止',
