@@ -60,7 +60,14 @@ class AudioPlaybackService {
   StreamSubscription<web.Event>? _errorSubscription;
 
   static const _playStartTimeout = Duration(seconds: 5);
-  static const _completionTimeout = Duration(seconds: 30);
+  // A safety net only, for a genuinely stuck/hung element — not meant to
+  // bound how long a normal reply is allowed to run. 30s cut off replies
+  // that were simply a bit long but entirely normal (a few hundred
+  // characters of Japanese speech easily exceeds 30s); nothing about a
+  // reply's own length is capped elsewhere (see CLAUDE_MAX_TOKENS in the
+  // conversation Lambda), so this must comfortably outlast any realistic
+  // one-turn reply while still catching an actually-stuck element.
+  static const _completionTimeout = Duration(minutes: 5);
 
   web.HTMLAudioElement _ensureReplyElement() {
     final existing = _replyElement;
