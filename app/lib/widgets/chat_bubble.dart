@@ -47,6 +47,20 @@ class ChatBubble extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(message.text, style: TextStyle(color: textColor)),
+            // English learning mode: the Japanese rendering sits directly
+            // under the English it belongs to, smaller and dimmer so the
+            // English stays the thing you read first.
+            if (message.translation != null && message.translation!.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                message.translation!,
+                style: TextStyle(
+                  color: textColor.withValues(alpha: 0.65),
+                  fontSize: 12,
+                  height: 1.4,
+                ),
+              ),
+            ],
             if (!isError)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
