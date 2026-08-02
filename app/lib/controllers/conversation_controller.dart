@@ -245,21 +245,41 @@ class ConversationController extends ChangeNotifier {
     }
   }
 
+  /// Set when a reply's audio failed to start on its own. The UI surfaces
+  /// this as a tap-to-play prompt: a tap carries a fresh user gesture,
+  /// which is exactly what blocked playback needs, and it also means a
+  /// failure is visible and reportable instead of silently degrading to
+  /// text-only — the condition that let earlier autoplay regressions go
+  /// undiagnosed for several rounds (see README.md's autoplay history).
+  String? autoplayBlockedUrl;
+
   /// Plays the just-received reply's audio. Locks mic input and the send
   /// button until playback genuinely finishes (or is force-stopped via
   /// [forceStopReading]), then plays the "ready" cue.
   Future<void> playReplyAudio(String url) async {
     isPlayingReply = true;
+    autoplayBlockedUrl = null;
     notifyListeners();
     try {
       await _audio.play(url);
     } catch (e) {
-      // Autoplay can still be blocked by the browser in rare cases — the
-      // "音声を再生" button lets the user retry, so stay silent here.
+      debugPrint('Reply autoplay failed, offering manual playback: $e');
+      autoplayBlockedUrl = url;
     }
     isPlayingReply = false;
     notifyListeners();
     await _audio.playCue();
+  }
+
+  /// Retries a reply whose autoplay was blocked. Called straight from a
+  /// tap, so it both carries a fresh gesture and re-primes the element.
+  Future<void> retryBlockedAutoplay() async {
+    final url = autoplayBlockedUrl;
+    if (url == null) return;
+    unawaited(_audio.unlock());
+    autoplayBlockedUrl = null;
+    notifyListeners();
+    await playReplyAudio(url);
   }
 
   Future<void> forceStopReading() async {
