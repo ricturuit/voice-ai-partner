@@ -53,11 +53,20 @@ String _webAssetUrl(String assetKey) => 'assets/$assetKey';
 class AudioPlaybackService {
   web.HTMLAudioElement? _replyElement;
   web.AudioContext? _cueContext;
-  bool _unlocked = false;
+  // Guards re-priming (see [unlock]) against interrupting a reply that is
+  // genuinely playing right now. This is NOT an "already unlocked" latch —
+  // see unlock()'s doc comment for why such a latch must never exist here.
+  bool _isPlayingReply = false;
 
   Completer<void>? _activeCompleter;
   StreamSubscription<web.Event>? _endedSubscription;
   StreamSubscription<web.Event>? _errorSubscription;
+
+  /// How many times [unlock] has actually attempted to prime the element.
+  /// Exists so a test can assert that priming happens on *every* gesture —
+  /// the invariant whose violation caused this bug twice. See [unlock].
+  @visibleForTesting
+  int primeAttempts = 0;
 
   static const _playStartTimeout = Duration(seconds: 5);
   // A safety net only, for a genuinely stuck/hung element — not meant to
@@ -78,22 +87,49 @@ class AudioPlaybackService {
     return _replyElement = element;
   }
 
-  /// Must be invoked synchronously (before any other `await`) from inside a
-  /// real user-gesture handler — a button tap — so the very first `play()`
-  /// on the persistent reply element is attributed to that gesture. Safe to
-  /// call on every tap: once actually unlocked, this is a cheap no-op for
-  /// the rest of the page's lifetime (see class doc, point 1).
+  /// Re-primes the reply element for gesture-free playback later in the
+  /// turn. Must be invoked synchronously (before any other `await`) from
+  /// inside a real user-gesture handler — a button tap — so the `play()`
+  /// below is attributed to that gesture.
+  ///
+  /// **This deliberately re-primes on EVERY call and must never be latched
+  /// behind an "already unlocked" boolean.** An earlier version of this
+  /// service did exactly that (`if (_unlocked) return;`), which silently
+  /// reintroduced a regression this project had already diagnosed and
+  /// fixed once before, in the AudioContext era: see `README.md` §"修正:
+  /// スマホで数ターン後に自動再生が止まる不具合(2026-07-17)", where a
+  /// one-shot `_audioContextUnlocked` flag produced precisely this
+  /// symptom (first turn or two play, then autoplay stops for the rest of
+  /// the session while manual replay keeps working), and deleting the flag
+  /// so every tap re-primes was the fix.
+  ///
+  /// The reason a latch cannot work: iOS Safari's "this element may play
+  /// without a gesture" state is not permanent. Backgrounding the tab,
+  /// locking the screen, or an audio-session interruption can revoke it,
+  /// and nothing notifies the page when that happens. A latch turns that
+  /// silent revocation into a permanent failure, because the one code path
+  /// that could restore the permission — touching the element inside a
+  /// real gesture — is exactly the path the latch skips. Re-priming costs
+  /// one ~100ms silent asset play (cached after the first) per tap, which
+  /// is a trivial price for not losing audio for the rest of the session.
   Future<void> unlock() async {
-    if (_unlocked) return;
+    // Never yank the source out from under a reply that is actually
+    // playing — this is the one case where re-priming would do harm.
+    if (_isPlayingReply) return;
+    primeAttempts++;
     final element = _ensureReplyElement();
     try {
       element.src = _webAssetUrl('assets/sounds/unlock_silent.wav');
       await element.play().toDart.timeout(_playStartTimeout);
-      _unlocked = true;
+      // The asset is ~100ms of silence and would end on its own, but stop
+      // it explicitly so the element is idle before the real reply swaps
+      // the source in.
+      element.pause();
     } catch (e) {
-      // Best-effort only; if this didn't actually unlock anything, the
-      // next real play() attempt will surface that on its own.
-      debugPrint('<audio> unlock failed: $e');
+      // Best-effort only; if this didn't actually prime anything, the next
+      // real play() attempt surfaces that to the caller (which now shows
+      // the user a tap-to-play affordance rather than failing silently).
+      debugPrint('<audio> unlock/prime failed: $e');
     }
   }
 
@@ -130,13 +166,13 @@ class AudioPlaybackService {
   /// is expected/silent for an automatic reply, but not for a manual replay
   /// tap).
   Future<void> play(String url) async {
-    if (!_unlocked) {
-      // Nothing has successfully unlocked the element yet (e.g. the very
-      // first gesture's unlock() attempt itself failed) — this call is
-      // itself gesture-adjacent (a mic/send tap led here), so it's worth
-      // one more direct attempt before giving up.
-      await unlock();
-    }
+    // Deliberately does NOT try to unlock() here as a fallback: by this
+    // point the originating tap is long over (the API round-trip happened
+    // in between), so a prime issued now carries no gesture and cannot
+    // grant permission the element doesn't already have. Priming only ever
+    // works at gesture time — see unlock(). If playback is blocked anyway,
+    // this method throws and the caller offers the user a tap-to-play
+    // affordance, which does carry a fresh gesture.
     final element = _ensureReplyElement();
 
     final completer = Completer<void>();
@@ -153,10 +189,13 @@ class AudioPlaybackService {
     });
 
     try {
-      // Never let a previous reply/cue keep playing underneath a new one.
+      _isPlayingReply = true;
+      // Never let a previous reply/prime keep playing underneath a new one.
       element.pause();
+      // Assigning src resets playback to the start on its own; no
+      // currentTime seek is needed (and seeking before the new source has
+      // loaded is a no-op that only muddies the state).
       element.src = url;
-      element.currentTime = 0;
       await element.play().toDart.timeout(_playStartTimeout);
       // The 'ended' event is what normally completes this, but bound the
       // wait in case it never fires for some reason — this must never hang
@@ -165,6 +204,7 @@ class AudioPlaybackService {
         element.pause();
       });
     } finally {
+      _isPlayingReply = false;
       await _endedSubscription?.cancel();
       await _errorSubscription?.cancel();
       _endedSubscription = null;

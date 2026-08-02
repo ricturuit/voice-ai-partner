@@ -96,6 +96,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
             if (_controller.isSending) const LinearProgressIndicator(minHeight: 2),
             if (_controller.isPlayingReply) _buildPlayingReplyIndicator(),
+            if (_controller.autoplayBlockedUrl != null) _buildAutoplayBlockedBanner(),
             if (_controller.isListening) _buildListeningIndicator(),
             _buildInputBar(),
           ],
@@ -116,6 +117,36 @@ class _ChatScreenState extends State<ChatScreen> {
           const SizedBox(width: 8),
           Text('音声を認識しています…(✕でやり直せます)', style: TextStyle(color: Colors.red.shade700)),
         ],
+      ),
+    );
+  }
+
+  /// Shown when a reply's audio couldn't start on its own. Tapping carries
+  /// a fresh user gesture, which is what blocked playback actually needs —
+  /// and it makes the failure visible rather than silently degrading to
+  /// text-only (see ConversationController.autoplayBlockedUrl).
+  Widget _buildAutoplayBlockedBanner() {
+    return Material(
+      color: Colors.amber.shade50,
+      child: InkWell(
+        onTap: _controller.retryBlockedAutoplay,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.play_circle_outline, color: Colors.amber.shade900, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '音声を自動再生できませんでした。タップして再生',
+                  style: TextStyle(color: Colors.amber.shade900),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
