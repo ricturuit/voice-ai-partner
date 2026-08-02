@@ -7,8 +7,10 @@ import 'package:speech_to_text/speech_to_text.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/chat_message.dart';
+import '../models/learning_level.dart';
 import '../services/audio_playback_service.dart';
 import '../services/conversation_api.dart';
+import '../services/learning_progress_store.dart';
 
 /// Holds all conversation state and STT/TTS orchestration shared between the
 /// chat screen and the voice-call screen, so both can drive the same
@@ -32,6 +34,7 @@ class ConversationController extends ChangeNotifier {
 
   final ConversationApi _api = ConversationApi();
   final AudioPlaybackService _audio = AudioPlaybackService();
+  final LearningProgressStore _progress = LearningProgressStore();
   final SpeechToText _speech = SpeechToText();
   final TextEditingController inputTextController = TextEditingController();
   final List<ChatMessage> messages = [];
@@ -49,9 +52,111 @@ class ConversationController extends ChangeNotifier {
   bool speechAvailable = false;
   bool isListening = false;
 
+  // ---- English learning mode -------------------------------------------
+
+  /// Whether the conversation is currently in English learning mode.
+  bool learningMode = false;
+
+  /// The learner's level, restored from local storage on startup.
+  late LearningLevel level = _progress.load();
+
+  /// Hints for the learner's *next* reply, produced alongside 名取's current
+  /// reply (same API round trip — no extra call, no extra wait). Cleared as
+  /// soon as a message is sent, since they describe the turn just answered.
+  List<HintWord> hintWords = const [];
+
+  /// Ready-made replies the learner can send as-is. Generated with the same
+  /// reply but kept hidden until [showSuggestedReplies] is set, so seeing the
+  /// answer is a deliberate choice rather than a spoiler.
+  List<HintWord> suggestedReplies = const [];
+  bool showSuggestedReplies = false;
+
+  /// Level test state. [levelTestTurn] is 1-based and counts turns already
+  /// sent; the server gives its verdict on the final turn.
+  static const levelTestTotalTurns = 5;
+  bool isLevelTest = false;
+  int levelTestTurn = 0;
+
+  /// The most recent verdict, held so the UI can present it (and any
+  /// level-up) until the learner dismisses it.
+  LevelTestResult? lastTestResult;
+  LearningLevel? leveledUpTo;
+
   ConversationController() {
     sessionId = const Uuid().v4();
     _initSpeech();
+  }
+
+  void setLearningMode(bool enabled) {
+    if (learningMode == enabled) return;
+    learningMode = enabled;
+    _clearTurnAssistance();
+    // Abandon any test in progress: its remaining turns assume a mode the
+    // learner just left.
+    isLevelTest = false;
+    levelTestTurn = 0;
+    notifyListeners();
+  }
+
+  void startLevelTest() {
+    if (!learningMode || isSending || isPlayingReply) return;
+    isLevelTest = true;
+    levelTestTurn = 0;
+    lastTestResult = null;
+    leveledUpTo = null;
+    notifyListeners();
+  }
+
+  void cancelLevelTest() {
+    if (!isLevelTest) return;
+    isLevelTest = false;
+    levelTestTurn = 0;
+    notifyListeners();
+  }
+
+  void dismissTestResult() {
+    lastTestResult = null;
+    leveledUpTo = null;
+    notifyListeners();
+  }
+
+  void toggleSuggestedReplies() {
+    showSuggestedReplies = !showSuggestedReplies;
+    notifyListeners();
+  }
+
+  /// Inserts a hint word into the input field. Stops listening first if the
+  /// mic is open: every recognition result replaces the field's whole
+  /// contents, so anything inserted mid-listen would be wiped by the next
+  /// result. Ending input on tap is also the natural reading of the gesture —
+  /// you reach for a hint word because you've stopped mid-sentence.
+  Future<void> insertHintWord(String word) async {
+    if (isListening) {
+      await cancelListeningKeepingText();
+    }
+    final current = inputTextController.text.trimRight();
+    final joined = current.isEmpty ? word : '$current $word';
+    inputTextController.text = joined;
+    inputTextController.selection = TextSelection.collapsed(offset: joined.length);
+    notifyListeners();
+  }
+
+  /// Fills the input with a ready-made reply so the learner can review or
+  /// edit it before sending, rather than it being sent out from under them.
+  Future<void> useSuggestedReply(String reply) async {
+    if (isListening) {
+      await cancelListeningKeepingText();
+    }
+    inputTextController.text = reply;
+    inputTextController.selection = TextSelection.collapsed(offset: reply.length);
+    showSuggestedReplies = false;
+    notifyListeners();
+  }
+
+  void _clearTurnAssistance() {
+    hintWords = const [];
+    suggestedReplies = const [];
+    showSuggestedReplies = false;
   }
 
   @override
@@ -139,6 +244,14 @@ class ConversationController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Stops listening but keeps whatever has been recognized so far, so the
+  /// learner can edit it (or add a hint word to it) instead of losing it.
+  Future<void> cancelListeningKeepingText() async {
+    await _speech.stop();
+    isListening = false;
+    notifyListeners();
+  }
+
   Future<void> startListening() async {
     if (isListening) return;
     if (isSending || isPlayingReply) return;
@@ -168,7 +281,12 @@ class ConversationController extends ChangeNotifier {
       await _speech.listen(
         onResult: _handleSpeechResult,
         listenOptions: SpeechListenOptions(
-          localeId: 'ja_JP',
+          // Recognition has to be told which language to expect — a
+          // Japanese recognizer fed English produces phonetic nonsense.
+          // This also makes the transcript itself useful feedback in
+          // learning mode: the bubble shows what was actually heard, so a
+          // pronunciation that isn't landing becomes visible.
+          localeId: learningMode ? 'en_US' : 'ja_JP',
           partialResults: true,
           cancelOnError: true,
         ),
@@ -209,6 +327,10 @@ class ConversationController extends ChangeNotifier {
     isListening = false;
     messages.add(ChatMessage(role: ChatRole.user, text: text));
     inputTextController.clear();
+    // The hints described the turn being answered right now; they'd be
+    // misleading once this message is on its way.
+    _clearTurnAssistance();
+    if (isLevelTest) levelTestTurn++;
     notifyListeners();
 
     if (wasListening) {
@@ -226,13 +348,34 @@ class ConversationController extends ChangeNotifier {
 
     String? audioUrlToPlay;
     try {
-      final result = await _api.sendMessage(sessionId: sessionId, text: text);
-      messages.add(
-        ChatMessage(role: ChatRole.assistant, text: result.text, audioUrl: result.audioUrl),
+      final result = await _api.sendMessage(
+        sessionId: sessionId,
+        text: text,
+        englishLearningMode: learningMode,
+        level: level,
+        levelTest: isLevelTest,
+        levelTestTurn: levelTestTurn,
       );
+      messages.add(
+        ChatMessage(
+          role: ChatRole.assistant,
+          text: result.text,
+          audioUrl: result.audioUrl,
+          translation: result.translation,
+        ),
+      );
+      hintWords = result.hintWords;
+      suggestedReplies = result.suggestedReplies;
+      showSuggestedReplies = false;
+      if (result.testResult != null) {
+        _applyTestResult(result.testResult!);
+      }
       audioUrlToPlay = result.audioUrl;
     } on ConversationApiException catch (e) {
       messages.add(ChatMessage(role: ChatRole.error, text: e.message));
+      // A failed turn shouldn't burn a test turn the learner never got to
+      // use — give it back so the test still runs its full length.
+      if (isLevelTest && levelTestTurn > 0) levelTestTurn--;
     } finally {
       // Done sending regardless of what happens with audio playback below —
       // playback must never keep the input controls disabled indefinitely.
@@ -242,6 +385,25 @@ class ConversationController extends ChangeNotifier {
 
     if (audioUrlToPlay != null) {
       await playReplyAudio(audioUrlToPlay);
+    }
+  }
+
+  /// Records a verdict and, on a pass, moves the learner up a level. The
+  /// test always ends here either way — a verdict is the end of the test.
+  void _applyTestResult(LevelTestResult result) {
+    lastTestResult = result;
+    isLevelTest = false;
+    levelTestTurn = 0;
+    leveledUpTo = null;
+    if (result.passed) {
+      final next = level.next;
+      if (next != null) {
+        level = next;
+        leveledUpTo = next;
+        _progress.save(next);
+      }
+      // Passing at the ceiling is still a pass; there is simply nowhere
+      // further to go, which the UI says rather than silently doing nothing.
     }
   }
 

@@ -62,8 +62,16 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('音声AIパートナー'),
+        title: Text(_controller.learningMode ? '英語学習モード' : '音声AIパートナー'),
         actions: [
+          IconButton(
+            tooltip: _controller.learningMode ? '英語学習モードを終了' : '英語学習モード',
+            onPressed: () => _controller.setLearningMode(!_controller.learningMode),
+            icon: Icon(
+              Icons.school_outlined,
+              color: _controller.learningMode ? Colors.teal : null,
+            ),
+          ),
           IconButton(
             tooltip: '音声会話モードに切り替え',
             onPressed: widget.onSwitchToVoiceCall,
@@ -74,10 +82,16 @@ class _ChatScreenState extends State<ChatScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            if (_controller.learningMode) _buildLearningHeader(),
             Expanded(
               child: _controller.messages.isEmpty
-                  ? const Center(
-                      child: Text('メッセージを送信して会話を始めましょう', style: TextStyle(color: Colors.grey)),
+                  ? Center(
+                      child: Text(
+                        _controller.learningMode
+                            ? 'Say hello to start! 英語で話しかけてみましょう'
+                            : 'メッセージを送信して会話を始めましょう',
+                        style: const TextStyle(color: Colors.grey),
+                      ),
                     )
                   : ListView.builder(
                       controller: _scrollController,
@@ -95,9 +109,11 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
             ),
             if (_controller.isSending) const LinearProgressIndicator(minHeight: 2),
+            if (_controller.lastTestResult != null) _buildTestResultBanner(),
             if (_controller.isPlayingReply) _buildPlayingReplyIndicator(),
             if (_controller.autoplayBlockedUrl != null) _buildAutoplayBlockedBanner(),
             if (_controller.isListening) _buildListeningIndicator(),
+            if (_controller.learningMode) _buildInputAssistance(),
             _buildInputBar(),
           ],
         ),
@@ -116,6 +132,204 @@ class _ChatScreenState extends State<ChatScreen> {
           Icon(Icons.fiber_manual_record, color: Colors.red.shade400, size: 12),
           const SizedBox(width: 8),
           Text('音声を認識しています…(✕でやり直せます)', style: TextStyle(color: Colors.red.shade700)),
+        ],
+      ),
+    );
+  }
+
+  /// Current level, its plain-Japanese meaning, and the level-test control.
+  Widget _buildLearningHeader() {
+    final level = _controller.level;
+    final testing = _controller.isLevelTest;
+    return Container(
+      width: double.infinity,
+      color: Colors.teal.shade50,
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.teal.shade600,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        level.code,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      level.eiken,
+                      style: TextStyle(color: Colors.teal.shade900, fontSize: 12),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  testing
+                      ? 'レベルテスト中… ${_controller.levelTestTurn}/${ConversationController.levelTestTotalTurns}'
+                      : level.goal,
+                  style: TextStyle(color: Colors.teal.shade900, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          TextButton.icon(
+            onPressed: testing ? _controller.cancelLevelTest : _controller.startLevelTest,
+            icon: Icon(testing ? Icons.close : Icons.workspace_premium_outlined, size: 18),
+            label: Text(testing ? '中止' : 'テスト'),
+            style: TextButton.styleFrom(foregroundColor: Colors.teal.shade800),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Hint words for the learner's next reply, plus the on-demand suggested
+  /// replies. Both arrive with 名取's reply, so tapping is instant; the
+  /// suggestions stay hidden until asked for so they don't spoil the attempt.
+  Widget _buildInputAssistance() {
+    final hints = _controller.hintWords;
+    final suggestions = _controller.suggestedReplies;
+    if (hints.isEmpty && suggestions.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_controller.showSuggestedReplies && suggestions.isNotEmpty)
+            ...suggestions.map(
+              (s) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: InkWell(
+                  onTap: () => _controller.useSuggestedReply(s.en),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.shade50,
+                      border: Border.all(color: Colors.teal.shade200),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(s.en, style: const TextStyle(fontSize: 14)),
+                        Text(
+                          s.ja,
+                          style: TextStyle(fontSize: 11, color: Colors.teal.shade900),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          Row(
+            children: [
+              if (suggestions.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ActionChip(
+                    avatar: Icon(
+                      _controller.showSuggestedReplies
+                          ? Icons.visibility_off_outlined
+                          : Icons.lightbulb_outline,
+                      size: 16,
+                    ),
+                    label: Text(_controller.showSuggestedReplies ? '隠す' : '回答例'),
+                    onPressed: _controller.toggleSuggestedReplies,
+                    backgroundColor: Colors.amber.shade50,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final h in hints)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: ActionChip(
+                            label: Text('${h.en}（${h.ja}）', style: const TextStyle(fontSize: 12)),
+                            onPressed: () => _controller.insertHintWord(h.en),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The verdict from a finished level test, including a level-up when the
+  /// learner passed.
+  Widget _buildTestResultBanner() {
+    final result = _controller.lastTestResult!;
+    final leveledUp = _controller.leveledUpTo;
+    final color = result.passed ? Colors.green : Colors.orange;
+    return Container(
+      width: double.infinity,
+      color: color.shade50,
+      padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            result.passed ? Icons.emoji_events : Icons.replay_circle_filled_outlined,
+            color: color.shade700,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  result.passed
+                      ? (leveledUp != null
+                          ? '合格！ ${leveledUp.code}（${leveledUp.eiken}）にレベルアップ'
+                          : '合格！ 最高レベルに到達しています')
+                      : 'もう一歩。同じレベルでもう一度挑戦しましょう',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: color.shade900),
+                ),
+                if (result.comment.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    result.comment,
+                    style: TextStyle(fontSize: 12, color: color.shade900, height: 1.5),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: '閉じる',
+            onPressed: _controller.dismissTestResult,
+            icon: const Icon(Icons.close, size: 18),
+          ),
         ],
       ),
     );
@@ -217,7 +431,9 @@ class _ChatScreenState extends State<ChatScreen> {
               keyboardType: TextInputType.multiline,
               textInputAction: TextInputAction.newline,
               decoration: InputDecoration(
-                hintText: _controller.isListening ? '話しかけてください…' : 'メッセージを入力',
+                hintText: _controller.isListening
+                    ? (_controller.learningMode ? 'Speak in English…' : '話しかけてください…')
+                    : (_controller.learningMode ? 'Type in English…' : 'メッセージを入力'),
                 border: const OutlineInputBorder(
                   borderRadius: BorderRadius.all(Radius.circular(24)),
                 ),
