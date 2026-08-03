@@ -82,8 +82,20 @@ class ConversationController extends ChangeNotifier {
   LevelTestResult? lastTestResult;
   LearningLevel? leveledUpTo;
 
+  /// Reply playback speed. Persisted, and applied to the audio element
+  /// immediately so a change lands on whatever is already playing.
+  late PlaybackSpeed playbackSpeed = _progress.loadSpeed();
+
+  void setPlaybackSpeed(PlaybackSpeed speed) {
+    playbackSpeed = speed;
+    _audio.playbackRate = speed.rate;
+    _progress.saveSpeed(speed);
+    notifyListeners();
+  }
+
   ConversationController() {
     sessionId = const Uuid().v4();
+    _audio.playbackRate = playbackSpeed.rate;
     _initSpeech();
   }
 
@@ -414,6 +426,12 @@ class ConversationController extends ChangeNotifier {
   /// text-only — the condition that let earlier autoplay regressions go
   /// undiagnosed for several rounds (see README.md's autoplay history).
   String? autoplayBlockedUrl;
+
+  /// The browser's own error text for that failure, shown alongside the
+  /// prompt. Deliberately not translated or prettified: when this recurs,
+  /// the exact error is what makes the next diagnosis take minutes instead
+  /// of rounds of guessing.
+  String? get autoplayFailureReason => _audio.lastFailureReason;
 
   /// Plays the just-received reply's audio. Locks mic input and the send
   /// button until playback genuinely finishes (or is force-stopped via

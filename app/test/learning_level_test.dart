@@ -3,6 +3,7 @@ library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:voice_ai_partner_client/models/learning_level.dart';
+import 'package:voice_ai_partner_client/services/learning_progress_store.dart';
 
 void main() {
   test('ladder runs A1 → C1 in order, with A1 the floor and C1 the ceiling', () {
@@ -46,5 +47,32 @@ void main() {
       expect(level.eiken, isNotEmpty, reason: '${level.code} needs a 英検 label');
       expect(level.goal, isNotEmpty, reason: '${level.code} needs a goal');
     }
+  });
+
+  test('playback speeds are five steps spanning slower and faster than 1.0', () {
+    expect(PlaybackSpeed.values.length, 5, reason: 'five steps were asked for');
+    final rates = PlaybackSpeed.values.map((s) => s.rate).toList();
+    expect(
+      rates,
+      orderedEquals(<double>[0.7, 0.85, 1.0, 1.15, 1.3]),
+      reason: 'must be ordered slowest→fastest and centred on 1.0, since the '
+          'toolbar renders them in declaration order',
+    );
+    expect(PlaybackSpeed.normal.rate, 1.0);
+    // Below 0.5 or above ~2.0 browsers may mute playback entirely rather
+    // than time-stretch it, which would read as "the audio broke".
+    for (final speed in PlaybackSpeed.values) {
+      expect(speed.rate, greaterThanOrEqualTo(0.5));
+      expect(speed.rate, lessThanOrEqualTo(2.0));
+      expect(speed.label, isNotEmpty);
+    }
+  });
+
+  test('speed ids round-trip and fall back to normal on unknown input', () {
+    for (final speed in PlaybackSpeed.values) {
+      expect(PlaybackSpeed.fromId(speed.id), speed);
+    }
+    expect(PlaybackSpeed.fromId(null), PlaybackSpeed.normal);
+    expect(PlaybackSpeed.fromId('x9.9'), PlaybackSpeed.normal);
   });
 }

@@ -59,8 +59,28 @@ class AudioPlaybackService {
   bool _isPlayingReply = false;
 
   Completer<void>? _activeCompleter;
-  StreamSubscription<web.Event>? _endedSubscription;
-  StreamSubscription<web.Event>? _errorSubscription;
+  // Bumped for every play(); a call whose generation is stale must not touch
+  // shared state in its `finally`, since a newer call already owns it.
+  int _playGeneration = 0;
+
+  double _playbackRate = 1.0;
+
+  /// Playback speed applied to reply audio, as a multiplier. Takes effect
+  /// immediately, including on audio that is already playing, so a learner
+  /// can slow a reply down while it's being read rather than after.
+  set playbackRate(double rate) {
+    _playbackRate = rate;
+    final element = _replyElement;
+    if (element == null) return;
+    element.preservesPitch = true;
+    element.playbackRate = rate;
+  }
+
+  /// Why the last playback attempt failed, if it did. Surfaced in the UI so a
+  /// recurrence is reportable with the actual browser error rather than just
+  /// "sometimes there's no sound" — the ambiguity that has repeatedly cost
+  /// this project days of guessing.
+  String? lastFailureReason;
 
   /// How many times [unlock] has actually attempted to prime the element.
   /// Exists so a test can assert that priming happens on *every* gesture —
@@ -68,7 +88,16 @@ class AudioPlaybackService {
   @visibleForTesting
   int primeAttempts = 0;
 
-  static const _playStartTimeout = Duration(seconds: 5);
+  // Priming plays a small, bundled, already-cached asset, so if it hasn't
+  // started in a few seconds it isn't going to.
+  static const _primeStartTimeout = Duration(seconds: 5);
+  // A reply, by contrast, is an MP3 fetched over the network: play() only
+  // resolves once enough has buffered to begin, which on a phone connection
+  // can legitimately take a while for a long reply. The old 5s bound here
+  // aborted those — turning "slow to load" into "no audio at all". A policy
+  // block (NotAllowedError) rejects essentially instantly, so waiting longer
+  // costs nothing for the case this timeout actually exists to catch.
+  static const _replyStartTimeout = Duration(seconds: 30);
   // A safety net only, for a genuinely stuck/hung element — not meant to
   // bound how long a normal reply is allowed to run. 30s cut off replies
   // that were simply a bit long but entirely normal (a few hundred
@@ -120,11 +149,17 @@ class AudioPlaybackService {
     final element = _ensureReplyElement();
     try {
       element.src = _webAssetUrl('assets/sounds/unlock_silent.wav');
-      await element.play().toDart.timeout(_playStartTimeout);
+      await element.play().toDart.timeout(_primeStartTimeout);
       // The asset is ~100ms of silence and would end on its own, but stop
       // it explicitly so the element is idle before the real reply swaps
       // the source in.
-      element.pause();
+      //
+      // Re-check the guard rather than trusting the one at the top of this
+      // method: everything above is asynchronous, so a reply can have
+      // started playing on this same element in the meantime, and pausing
+      // unconditionally here would silence it — an intermittent "no audio"
+      // whose trigger is purely how long the prime's play() took to settle.
+      if (!_isPlayingReply) element.pause();
     } catch (e) {
       // Best-effort only; if this didn't actually prime anything, the next
       // real play() attempt surfaces that to the caller (which now shows
@@ -141,7 +176,7 @@ class AudioPlaybackService {
     try {
       final context = _cueContext ??= web.AudioContext();
       if (context.state == 'suspended') {
-        await context.resume().toDart.timeout(_playStartTimeout);
+        await context.resume().toDart.timeout(_primeStartTimeout);
       }
       if (context.state != 'running') return;
       final byteData = await rootBundle.load('assets/sounds/silence_cue.wav');
@@ -175,14 +210,22 @@ class AudioPlaybackService {
     // affordance, which does carry a fresh gesture.
     final element = _ensureReplyElement();
 
+    // There is one element, so a second play() necessarily takes the first
+    // one's playback away. Release the earlier caller explicitly instead of
+    // orphaning it: it is sitting on `completer.future`, and without this it
+    // would wait out the full completion timeout — with the conversation's
+    // input controls locked the whole time — for audio that stopped long
+    // ago. Reachable today by tapping a bubble's replay button while a reply
+    // is still being read aloud.
+    _releaseActivePlayback();
+
+    final generation = ++_playGeneration;
     final completer = Completer<void>();
     _activeCompleter = completer;
-    await _endedSubscription?.cancel();
-    await _errorSubscription?.cancel();
-    _endedSubscription = element.onEnded.listen((_) {
+    final endedSubscription = element.onEnded.listen((_) {
       if (!completer.isCompleted) completer.complete();
     });
-    _errorSubscription = element.onError.listen((_) {
+    final errorSubscription = element.onError.listen((_) {
       if (!completer.isCompleted) {
         completer.completeError(StateError('<audio> element playback error'));
       }
@@ -196,31 +239,47 @@ class AudioPlaybackService {
       // currentTime seek is needed (and seeking before the new source has
       // loaded is a no-op that only muddies the state).
       element.src = url;
-      await element.play().toDart.timeout(_playStartTimeout);
+      element.preservesPitch = true;
+      element.playbackRate = _playbackRate;
+      await element.play().toDart.timeout(_replyStartTimeout);
+      lastFailureReason = null;
       // The 'ended' event is what normally completes this, but bound the
       // wait in case it never fires for some reason — this must never hang
       // the caller (and therefore the conversation flow) forever.
       await completer.future.timeout(_completionTimeout, onTimeout: () {
         element.pause();
       });
+    } catch (e) {
+      lastFailureReason = e.toString();
+      rethrow;
     } finally {
-      _isPlayingReply = false;
-      await _endedSubscription?.cancel();
-      await _errorSubscription?.cancel();
-      _endedSubscription = null;
-      _errorSubscription = null;
-      if (identical(_activeCompleter, completer)) _activeCompleter = null;
+      await endedSubscription.cancel();
+      await errorSubscription.cancel();
+      // A newer play() has already taken ownership of the shared state;
+      // leave it alone rather than clobbering the live playback's flags.
+      if (_playGeneration == generation) {
+        _isPlayingReply = false;
+        if (identical(_activeCompleter, completer)) _activeCompleter = null;
+      }
     }
+  }
+
+  /// Completes whatever [play] call is currently waiting, so it can unwind
+  /// instead of waiting for audio that is about to be replaced or stopped.
+  void _releaseActivePlayback() {
+    final active = _activeCompleter;
+    _activeCompleter = null;
+    if (active != null && !active.isCompleted) active.complete();
   }
 
   /// Stops whatever reply/manual-replay audio [play] is currently awaiting.
   Future<void> stop() async {
     _replyElement?.pause();
-    _activeCompleter?.complete();
-    _activeCompleter = null;
+    _releaseActivePlayback();
   }
 
   void dispose() {
+    _releaseActivePlayback();
     _replyElement?.pause();
     _replyElement?.remove();
     _replyElement = null;
