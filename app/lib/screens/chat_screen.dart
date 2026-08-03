@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../controllers/conversation_controller.dart';
+import '../services/learning_progress_store.dart' show PlaybackSpeed;
 import '../widgets/chat_bubble.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -64,6 +65,7 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: AppBar(
         title: Text(_controller.learningMode ? '英語学習モード' : '音声AIパートナー'),
         actions: [
+          _buildSpeedMenu(),
           IconButton(
             tooltip: _controller.learningMode ? '英語学習モードを終了' : '英語学習モード',
             onPressed: () => _controller.setLearningMode(!_controller.learningMode),
@@ -101,9 +103,16 @@ class _ChatScreenState extends State<ChatScreen> {
                         final message = _controller.messages[index];
                         return ChatBubble(
                           message: message,
-                          onReplayAudio: message.audioUrl != null
-                              ? () => _controller.playAudio(message.audioUrl!, isManualReplay: true)
-                              : null,
+                          // Withheld while a reply is being read: both share
+                          // the one <audio> element, so starting a replay
+                          // now would cut the current reply off mid-sentence.
+                          onReplayAudio:
+                              message.audioUrl != null && !_controller.isPlayingReply
+                                  ? () => _controller.playAudio(
+                                        message.audioUrl!,
+                                        isManualReplay: true,
+                                      )
+                                  : null,
                         );
                       },
                     ),
@@ -133,6 +142,46 @@ class _ChatScreenState extends State<ChatScreen> {
           const SizedBox(width: 8),
           Text('音声を認識しています…(✕でやり直せます)', style: TextStyle(color: Colors.red.shade700)),
         ],
+      ),
+    );
+  }
+
+  /// Reply playback speed. Changing it takes effect immediately, including
+  /// on a reply that is already being read aloud, so it can be slowed down
+  /// mid-sentence rather than only for the next one.
+  Widget _buildSpeedMenu() {
+    return PopupMenuButton<PlaybackSpeed>(
+      tooltip: '読み上げの速さ',
+      initialValue: _controller.playbackSpeed,
+      onSelected: _controller.setPlaybackSpeed,
+      itemBuilder: (context) => [
+        for (final speed in PlaybackSpeed.values)
+          PopupMenuItem(
+            value: speed,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 46,
+                  child: Text(
+                    speed.display,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Text(speed.label),
+              ],
+            ),
+          ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.speed, size: 20),
+            const SizedBox(width: 3),
+            Text(_controller.playbackSpeed.display, style: const TextStyle(fontSize: 12)),
+          ],
+        ),
       ),
     );
   }
@@ -353,9 +402,23 @@ class _ChatScreenState extends State<ChatScreen> {
               Icon(Icons.play_circle_outline, color: Colors.amber.shade900, size: 20),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  '音声を自動再生できませんでした。タップして再生',
-                  style: TextStyle(color: Colors.amber.shade900),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '音声を自動再生できませんでした。タップして再生',
+                      style: TextStyle(color: Colors.amber.shade900),
+                    ),
+                    if (_controller.autoplayFailureReason != null)
+                      Text(
+                        _controller.autoplayFailureReason!,
+                        style: TextStyle(
+                          color: Colors.amber.shade900.withValues(alpha: 0.7),
+                          fontSize: 10,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ],
