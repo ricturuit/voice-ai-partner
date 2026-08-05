@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../controllers/conversation_controller.dart';
-import '../services/learning_progress_store.dart' show PlaybackSpeed;
+import '../services/learning_progress_store.dart' show PlaybackSpeed, PlaybackVolume;
 import '../widgets/chat_bubble.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -65,7 +65,7 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: AppBar(
         title: Text(_controller.learningMode ? '英語学習モード' : '音声AIパートナー'),
         actions: [
-          _buildSpeedMenu(),
+          _buildAudioMenu(),
           IconButton(
             tooltip: _controller.learningMode ? '英語学習モードを終了' : '英語学習モード',
             onPressed: () => _controller.setLearningMode(!_controller.learningMode),
@@ -146,30 +146,39 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  /// Reply playback speed. Changing it takes effect immediately, including
-  /// on a reply that is already being read aloud, so it can be slowed down
-  /// mid-sentence rather than only for the next one.
-  Widget _buildSpeedMenu() {
-    return PopupMenuButton<PlaybackSpeed>(
-      tooltip: '読み上げの速さ',
-      initialValue: _controller.playbackSpeed,
-      onSelected: _controller.setPlaybackSpeed,
+  /// Reply playback speed and loudness. Both take effect immediately,
+  /// including on a reply already being read aloud, so it can be slowed or
+  /// turned up mid-sentence rather than only for the next one.
+  Widget _buildAudioMenu() {
+    return PopupMenuButton<Object>(
+      tooltip: '読み上げの速さ・音量',
+      onSelected: (value) {
+        if (value is PlaybackSpeed) _controller.setPlaybackSpeed(value);
+        if (value is PlaybackVolume) _controller.setPlaybackVolume(value);
+      },
       itemBuilder: (context) => [
+        const PopupMenuItem<Object>(
+          enabled: false,
+          height: 32,
+          child: Text('読み上げの速さ', style: TextStyle(fontSize: 11, color: Colors.grey)),
+        ),
         for (final speed in PlaybackSpeed.values)
-          PopupMenuItem(
+          CheckedPopupMenuItem<Object>(
             value: speed,
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 46,
-                  child: Text(
-                    speed.display,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                Text(speed.label),
-              ],
-            ),
+            checked: _controller.playbackSpeed == speed,
+            child: Text('${speed.display}  ${speed.label}'),
+          ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<Object>(
+          enabled: false,
+          height: 32,
+          child: Text('音量', style: TextStyle(fontSize: 11, color: Colors.grey)),
+        ),
+        for (final volume in PlaybackVolume.values)
+          CheckedPopupMenuItem<Object>(
+            value: volume,
+            checked: _controller.playbackVolume == volume,
+            child: Text('${volume.display}  ${volume.label}'),
           ),
       ],
       child: Padding(
@@ -177,7 +186,7 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.speed, size: 20),
+            const Icon(Icons.tune, size: 20),
             const SizedBox(width: 3),
             Text(_controller.playbackSpeed.display, style: const TextStyle(fontSize: 12)),
           ],

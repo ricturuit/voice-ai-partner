@@ -86,6 +86,17 @@ class ConversationController extends ChangeNotifier {
   /// immediately so a change lands on whatever is already playing.
   late PlaybackSpeed playbackSpeed = _progress.loadSpeed();
 
+  /// Reply loudness. Defaults to boosted — replies out of the TTS service
+  /// are quieter than comfortable on a phone speaker.
+  late PlaybackVolume playbackVolume = _progress.loadVolume();
+
+  void setPlaybackVolume(PlaybackVolume volume) {
+    playbackVolume = volume;
+    _audio.volumeBoost = volume.gain;
+    _progress.saveVolume(volume);
+    notifyListeners();
+  }
+
   void setPlaybackSpeed(PlaybackSpeed speed) {
     playbackSpeed = speed;
     _audio.playbackRate = speed.rate;
@@ -96,6 +107,7 @@ class ConversationController extends ChangeNotifier {
   ConversationController() {
     sessionId = const Uuid().v4();
     _audio.playbackRate = playbackSpeed.rate;
+    _audio.volumeBoost = playbackVolume.gain;
     _initSpeech();
   }
 

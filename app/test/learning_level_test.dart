@@ -49,21 +49,28 @@ void main() {
     }
   });
 
-  test('playback speeds are five steps spanning slower and faster than 1.0', () {
-    expect(PlaybackSpeed.values.length, 5, reason: 'five steps were asked for');
+  test('playback speeds run 0.5x–1.0x only, never faster than normal', () {
     final rates = PlaybackSpeed.values.map((s) => s.rate).toList();
     expect(
       rates,
-      orderedEquals(<double>[0.7, 0.85, 1.0, 1.15, 1.3]),
-      reason: 'must be ordered slowest→fastest and centred on 1.0, since the '
-          'toolbar renders them in declaration order',
+      orderedEquals(<double>[0.5, 0.6, 0.7, 0.8, 0.9, 1.0]),
+      reason: '0.1 steps from 0.5x to 1.0x, in order, since the menu renders '
+          'them in declaration order',
+    );
+    expect(
+      rates.every((r) => r <= 1.0),
+      isTrue,
+      reason: 'the setting exists because replies are too fast to follow; '
+          'anything above 1.0x would not serve that',
+    );
+    expect(
+      rates.every((r) => r >= 0.5),
+      isTrue,
+      reason: 'below ~0.5x browsers stop time-stretching and may mute '
+          'playback outright, which would read as broken audio',
     );
     expect(PlaybackSpeed.normal.rate, 1.0);
-    // Below 0.5 or above ~2.0 browsers may mute playback entirely rather
-    // than time-stretch it, which would read as "the audio broke".
     for (final speed in PlaybackSpeed.values) {
-      expect(speed.rate, greaterThanOrEqualTo(0.5));
-      expect(speed.rate, lessThanOrEqualTo(2.0));
       expect(speed.label, isNotEmpty);
     }
   });
@@ -74,5 +81,26 @@ void main() {
     }
     expect(PlaybackSpeed.fromId(null), PlaybackSpeed.normal);
     expect(PlaybackSpeed.fromId('x9.9'), PlaybackSpeed.normal);
+  });
+
+  test('volume defaults to a boost, and keeps an unboosted escape hatch', () {
+    expect(
+      PlaybackVolume.fromId(null),
+      PlaybackVolume.boosted,
+      reason: 'replies are quieter than comfortable on a phone speaker, so '
+          'the boost is the default rather than opt-in',
+    );
+    expect(PlaybackVolume.boosted.gain, 1.5);
+    expect(
+      PlaybackVolume.original.gain,
+      1.0,
+      reason: 'a gain of exactly 1.0 is what keeps the element off the Web '
+          'Audio graph entirely — the fallback if boosting misbehaves',
+    );
+    for (final volume in PlaybackVolume.values) {
+      expect(volume.gain, greaterThanOrEqualTo(1.0));
+      expect(PlaybackVolume.fromId(volume.id), volume);
+    }
+    expect(PlaybackVolume.fromId('v9.9'), PlaybackVolume.boosted);
   });
 }
