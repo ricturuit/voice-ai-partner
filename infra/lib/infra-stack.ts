@@ -130,6 +130,14 @@ export class InfraStack extends cdk.Stack {
       handler: 'index.handler',
       code: lambda.Code.fromAsset('lambda/conversation'),
       timeout: cdk.Duration.seconds(60),
+      // Left at 256 MB deliberately. Raising it to 1024 MB (i.e. ~4x the
+      // CPU, since Lambda scales CPU with memory) was tried against the
+      // 6–14 s turn latency and made no measurable difference — the
+      // per-stage timings this function now logs show why: everything
+      // CPU-bound here (S3 upload, URL signing, DynamoDB writes) totals
+      // ~0.3 s, and the rest is spent waiting on Claude and ElevenLabs.
+      // Since Lambda bills memory × duration and the duration is dominated
+      // by network waits, a higher tier would have cost ~4x for nothing.
       memorySize: 256,
       logGroup: conversationLogGroup,
       environment: {

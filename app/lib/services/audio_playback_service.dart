@@ -26,12 +26,16 @@ String _webAssetUrl(String assetKey) => 'assets/$assetKey';
 ///    package (used originally) instead destroys and recreates the
 ///    underlying `<audio>` element on every source change, which defeats
 ///    this and was the root cause of "long replies don't autoplay".
-/// 2. **iOS Safari's mute (ring/silent) switch and volume buttons are only
-///    respected by playback through a real `<audio>`/`<video>` element —
-///    never by the Web Audio API** (`AudioContext`/`GainNode`); a
-///    `GainNode`'s gain is a purely internal, relative scale factor and
-///    cannot restore hardware mute/volume behavior (confirmed against
-///    Apple's own developer forums). A pure-`AudioContext` rewrite (used
+/// 2. **iOS Safari's mute (ring/silent) switch and volume buttons follow the
+///    `<audio>`/`<video>` element, not the Web Audio API.** Audio that
+///    originates inside an `AudioContext` (a buffer decoded and played
+///    through a `GainNode`) ignores the ringer switch entirely — a
+///    `GainNode`'s gain is an internal scale factor, not the hardware
+///    volume. Note the boundary precisely, because it is narrower than
+///    "don't use Web Audio": an element routed *into* Web Audio with
+///    `createMediaElementSource` keeps the element as the source and so
+///    keeps honouring the switch, which is what makes the volume boost in
+///    [volumeBoost] safe. A pure-`AudioContext` rewrite (used
 ///    briefly before this) fixed constraint 1 but reintroduced this:
 ///    replies played at a fixed volume regardless of the phone's mute
 ///    switch or volume buttons — and, because a suspended `AudioContext`'s
@@ -52,7 +56,11 @@ String _webAssetUrl(String assetKey) => 'assets/$assetKey';
 /// many apps make for brief UI sound effects.
 class AudioPlaybackService {
   web.HTMLAudioElement? _replyElement;
-  web.AudioContext? _cueContext;
+  // One context serves both the cue and the volume-boost graph: Safari
+  // limits how many can exist at once, and there is no reason for two.
+  web.AudioContext? _audioContext;
+
+  web.AudioContext _ensureAudioContext() => _audioContext ??= web.AudioContext();
   // Guards re-priming (see [unlock]) against interrupting a reply that is
   // genuinely playing right now. This is NOT an "already unlocked" latch —
   // see unlock()'s doc comment for why such a latch must never exist here.
@@ -64,6 +72,79 @@ class AudioPlaybackService {
   int _playGeneration = 0;
 
   double _playbackRate = 1.0;
+  double _volumeBoost = 1.0;
+  web.MediaElementAudioSourceNode? _boostSource;
+  web.GainNode? _boostGain;
+
+  /// Output gain applied to reply audio, as a multiplier. Values above 1.0
+  /// make replies louder than the file itself — `HTMLMediaElement.volume`
+  /// cannot do that (it is capped at 1.0, and is read-only on iOS
+  /// altogether), so anything above 1.0 has to go through Web Audio.
+  ///
+  /// Routing the element through Web Audio is done lazily and only when a
+  /// boost is actually asked for, because it is irreversible for the
+  /// element's lifetime: `createMediaElementSource` can be called once, and
+  /// from then on the element's sound reaches the speakers only via the
+  /// graph. Leaving it unrouted at 1.0x means the plain, long-proven
+  /// playback path is still available by setting 1.0x and reloading.
+  ///
+  /// This does *not* cost the iOS mute-switch behaviour that took several
+  /// rounds to get right: an element connected with
+  /// `createMediaElementSource` still honours the ringer switch, unlike the
+  /// pure-`AudioContext` playback that broke it before (WebKit bug 237322
+  /// and the workarounds built around it both describe the element as what
+  /// keeps playback on the media channel). The project's own history agrees
+  /// — `audioplayers_web` used exactly this topology and never produced a
+  /// mute-switch complaint.
+  set volumeBoost(double boost) {
+    _volumeBoost = boost;
+    if (boost > 1.0) _ensureBoostGraph();
+    _boostGain?.gain.value = boost;
+  }
+
+  /// Resumes the shared context when — and only when — the element's output
+  /// depends on it. Returns whether playback can actually be heard.
+  Future<bool> _resumeContextIfRouted() async {
+    if (_boostGain == null) return true; // unrouted: element plays directly
+    final context = _audioContext;
+    if (context == null) return true;
+    if (context.state == 'running') return true;
+    try {
+      await context.resume().toDart.timeout(_primeStartTimeout);
+    } catch (e) {
+      debugPrint('Boost graph context resume failed: $e');
+    }
+    return context.state == 'running';
+  }
+
+  void _ensureBoostGraph() {
+    if (_boostGain != null) return;
+    final element = _replyElement;
+    if (element == null) return;
+    try {
+      final context = _ensureAudioContext();
+      final source = context.createMediaElementSource(element);
+      // Speech that is simply multiplied up clips on its peaks and turns
+      // harsh. Compressing first and making up the level after raises how
+      // loud it *sounds* without pushing the peaks into distortion.
+      final compressor = context.createDynamicsCompressor();
+      compressor.threshold.value = -24;
+      compressor.knee.value = 30;
+      compressor.ratio.value = 12;
+      compressor.attack.value = 0.003;
+      compressor.release.value = 0.25;
+      final gain = context.createGain();
+      gain.gain.value = _volumeBoost;
+      source.connect(compressor);
+      compressor.connect(gain);
+      gain.connect(context.destination);
+      _boostSource = source;
+      _boostGain = gain;
+    } catch (e) {
+      // Leave the element unrouted; it simply plays at its own level.
+      debugPrint('Volume boost graph unavailable, playing unboosted: $e');
+    }
+  }
 
   /// Playback speed applied to reply audio, as a multiplier. Takes effect
   /// immediately, including on audio that is already playing, so a learner
@@ -160,6 +241,11 @@ class AudioPlaybackService {
       // unconditionally here would silence it — an intermittent "no audio"
       // whose trigger is purely how long the prime's play() took to settle.
       if (!_isPlayingReply) element.pause();
+      // While the element is routed through the boost graph, its sound
+      // reaches the speakers only via the AudioContext — so a suspended
+      // context means silence with no error anywhere. Resume it here, on
+      // the same gesture that primed the element, for the same reason.
+      await _resumeContextIfRouted();
     } catch (e) {
       // Best-effort only; if this didn't actually prime anything, the next
       // real play() attempt surfaces that to the caller (which now shows
@@ -174,7 +260,7 @@ class AudioPlaybackService {
   /// or blocked context can't delay the conversation flow over a cue sound.
   Future<void> playCue() async {
     try {
-      final context = _cueContext ??= web.AudioContext();
+      final context = _ensureAudioContext();
       if (context.state == 'suspended') {
         await context.resume().toDart.timeout(_primeStartTimeout);
       }
@@ -241,6 +327,14 @@ class AudioPlaybackService {
       element.src = url;
       element.preservesPitch = true;
       element.playbackRate = _playbackRate;
+      // If the element is routed through the boost graph, a suspended
+      // context swallows the sound silently — the element still reports
+      // playing, so nothing downstream would ever notice. Fail loudly
+      // instead, which routes the user to the tap-to-play prompt (and that
+      // tap carries the gesture a resume needs).
+      if (!await _resumeContextIfRouted()) {
+        throw StateError('AudioContext is not running; boosted audio would be silent');
+      }
       await element.play().toDart.timeout(_replyStartTimeout);
       lastFailureReason = null;
       // The 'ended' event is what normally completes this, but bound the
@@ -280,10 +374,17 @@ class AudioPlaybackService {
 
   void dispose() {
     _releaseActivePlayback();
+    // Retained purely so the graph's source end is disconnectable here; the
+    // node is otherwise reachable only from inside the audio graph.
+    try {
+      _boostSource?.disconnect();
+    } catch (_) {}
     _replyElement?.pause();
     _replyElement?.remove();
     _replyElement = null;
-    unawaited(_cueContext?.close().toDart ?? Future.value());
-    _cueContext = null;
+    _boostSource = null;
+    _boostGain = null;
+    unawaited(_audioContext?.close().toDart ?? Future.value());
+    _audioContext = null;
   }
 }

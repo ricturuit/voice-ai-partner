@@ -217,7 +217,33 @@ function respond(statusCode, bodyObj) {
   };
 }
 
+// Per-stage timings for one invocation, logged as a single line at the end.
+// Turn latency is the thing users actually feel, and it is made of several
+// remote calls whose individual costs are invisible from the outside — the
+// last time it needed tuning, the breakdown had to be reconstructed by
+// timing each upstream service by hand. Logging it makes the next
+// investigation a log query instead.
+function createTimer() {
+  const start = Date.now();
+  let last = start;
+  const stages = {};
+  return {
+    mark(name) {
+      const now = Date.now();
+      stages[name] = now - last;
+      last = now;
+    },
+    log(extra) {
+      console.log(
+        "turn timings(ms)",
+        JSON.stringify({ ...stages, total: Date.now() - start, ...extra }),
+      );
+    },
+  };
+}
+
 exports.handler = async (event) => {
+  const timer = createTimer();
   try {
     const providedSecret = (event.headers && event.headers["x-api-secret"]) || "";
     const expectedSecret = await getSecretValue(process.env.SHARED_API_SECRET_ARN);
@@ -259,6 +285,7 @@ exports.handler = async (event) => {
       }),
     );
     const history = (historyResult.Items || []).slice().reverse();
+    timer.mark("history");
 
     const claudeMessages = history.map((item) => ({
       role: item.role,
@@ -324,6 +351,7 @@ exports.handler = async (event) => {
       return respond(502, { error: "claude_api_error" });
     }
 
+    timer.mark("claude");
     const claudeData = await claudeResponse.json();
     const replyText = (claudeData.content || [])
       .filter((block) => block.type === "text")
@@ -385,6 +413,7 @@ exports.handler = async (event) => {
       return respond(502, { error: "tts_api_error" });
     }
 
+    timer.mark("tts");
     const audioBuffer = Buffer.from(await ttsResponse.arrayBuffer());
 
     // 4. Store the audio in S3 and issue a short-lived signed URL for it.
@@ -398,11 +427,14 @@ exports.handler = async (event) => {
       }),
     );
 
+    timer.mark("s3Put");
     const audioUrl = await getSignedUrl(
       s3Client,
       new GetObjectCommand({ Bucket: BUCKET_NAME, Key: audioKey }),
       { expiresIn: AUDIO_URL_EXPIRY_SECONDS },
     );
+
+    timer.mark("sign");
 
     // 5. Persist this turn (user + assistant) with a short TTL.
     const now = Date.now();
@@ -431,6 +463,9 @@ exports.handler = async (event) => {
         }),
       ),
     ]);
+
+    timer.mark("persist");
+    timer.log({ mode: isEnglishMode ? "en" : "ja", replyChars: spokenText.length });
 
     return respond(200, {
       text: spokenText,
