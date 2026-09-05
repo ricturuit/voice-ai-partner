@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-07-24T11:38:54.612Z",
-  "entryCount": 267,
+  "generatedAt": "2026-09-05T04:49:02.997Z",
+  "entryCount": 270,
   "lookup": {
     "AGI": "エージーアイ",
     "Artificial General Intelligence": "エージーアイ",
@@ -9,6 +9,9 @@
     "ChatGPT": "チャットジーピーティー",
     "Claude": "クロード",
     "Gemini": "ジェミニ",
+    "Gemma": "ジェマ",
+    "Gemma4": "ジェマフォー",
+    "Gemma 4": "ジェマフォー",
     "GPT": "ジーピーティー",
     "GPT-4": "ジーピーティーフォー",
     "GPT-4.1": "ジーピーティーフォーポイントワン",
