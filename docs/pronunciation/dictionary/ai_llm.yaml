@@ -57,6 +57,24 @@
   tags: [brand_name]
   aliases: []
 
+# Gemma/Gemma4 は国内コミュニティでの定着読みが未確認(2026-09-05 時点)。
+# 既存の GPT-4 (ジーピーティーフォー) / Gemini (ジェミニ) の表記規則に倣い、
+# 英語原音ベースで「ジェマ」「ジェマフォー」を暫定採用。
+# 詳細は taxonomy/decision_log.md 参照。
+- id: gemma
+  term: Gemma
+  reading: ジェマ
+  category: ai_llm
+  tags: [brand_name, ambiguous_reading]
+  aliases: []
+
+- id: gemma-4
+  term: Gemma4
+  reading: ジェマフォー
+  category: ai_llm
+  tags: [brand_name, number_unit, ambiguous_reading]
+  aliases: ["Gemma 4"]
+
 # RAG は「アールエージー」と1文字ずつ読む流儀もあるが、実際の技術会話では
 # 単語読みの「ラグ」が広く定着しているためこちらを採用。
 # 詳細は taxonomy/decision_log.md 参照。
